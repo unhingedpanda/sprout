@@ -1,0 +1,49 @@
+name: Sprout
+options:
+  bundleIdPrefix: dev.unhingedpanda
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # ponytail: hardened runtime off while the engine links Homebrew dylibs; turn on with the self-contained engine for notarization
+    ENABLE_HARDENED_RUNTIME: NO
+    ASSETCATALOG_COMPILER_APPICON_NAME: ""
+targets:
+  Sprout:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/Sprout
+      - Resources
+    info:
+      path: Sources/Sprout/Info.plist
+      properties:
+        CFBundleDisplayName: Sprout
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: "GPL-3.0-or-later"
+        CFBundleURLTypes:
+          - CFBundleURLName: Magnet link
+            CFBundleURLSchemes: [magnet]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: BitTorrent file
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Default
+            LSItemContentTypes: [org.bittorrent.torrent]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: org.bittorrent.torrent
+            UTTypeDescription: BitTorrent file
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [torrent]
+              public.mime-type: [application/x-bittorrent]
+    postBuildScripts:
+      - name: Embed engine
+        script: '"$SRCROOT/scripts/embed-engine.sh"'
+        basedOnDependencyAnalysis: false
