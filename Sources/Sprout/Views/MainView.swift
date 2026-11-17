@@ -17,7 +17,7 @@ struct MainView: View {
                         .inspectorColumnWidth(min: 280, ideal: 330, max: 460)
                 }
         }
-        .navigationTitle(model.filter.title)
+        .navigationTitle(model.sidebar.title)
         .navigationSubtitle(countSummary)
         .containerBackground(Color.ground, for: .window)
         .tint(.lit)
@@ -27,38 +27,13 @@ struct MainView: View {
             model.open(urls)
             return true
         }
-        .sheet(isPresented: $model.showsAddSheet) { AddTorrentSheet() }
-        .confirmationDialog(
-            removalTitle,
-            isPresented: Binding(get: { model.pendingRemoval != nil }, set: { if !$0 { model.pendingRemoval = nil } }),
-            presenting: model.pendingRemoval
-        ) { hashes in
-            Button("Remove") { model.remove(hashes, deleteFiles: false) }
-                .keyboardShortcut(.defaultAction)
-            Button("Remove and Delete Files", role: .destructive) { model.remove(hashes, deleteFiles: true) }
-        } message: { _ in
-            Text("Removing a torrent keeps its downloaded files unless you also delete them.")
-        }
-        .alert(
-            "Sprout couldn't complete that",
-            isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
-        ) {} message: {
-            Text(model.errorMessage ?? "")
-        }
+        .modifier(MainDialogs())
     }
 
     // Speeds live in the pulse band; the subtitle only counts, so nothing is said twice.
     private var countSummary: String {
         let count = model.visibleTorrents.count
         return count == 1 ? "1 torrent" : "\(count) torrents"
-    }
-
-    private var removalTitle: String {
-        let count = model.pendingRemoval?.count ?? 0
-        if count == 1, let hash = model.pendingRemoval?.first, let name = model.torrents[hash]?.name {
-            return "Remove “\(name)”?"
-        }
-        return "Remove \(count) torrents?"
     }
 
     @ToolbarContentBuilder
@@ -97,6 +72,13 @@ struct MainView: View {
             .help("Sort torrents")
         }
         ToolbarItem {
+            Toggle("Alternative Speeds", systemImage: "tortoise", isOn: Binding(
+                get: { model.server.usesAlternativeSpeeds },
+                set: { _ in model.toggleAlternativeSpeeds() }
+            ))
+            .help("Use the alternative speed limits set in Settings (⌥⌘L)")
+        }
+        ToolbarItem {
             @Bindable var model = model
             Toggle("Inspector", systemImage: "sidebar.trailing", isOn: $model.showsInspector)
                 .help("Show or hide the inspector (⌥⌘I)")
@@ -109,26 +91,104 @@ struct SidebarView: View {
 
     var body: some View {
         @Bindable var model = model
-        List(selection: Binding($model.filter)) {
+        List(selection: Binding($model.sidebar)) {
             Section("Torrents") {
-                ForEach(TorrentFilter.allCases) { filter in
-                    Label {
-                        Text(filter.title)
-                    } icon: {
-                        Image(systemName: filter.symbol).foregroundStyle(.secondary)
-                    }
-                    .badge(model.count(filter))
-                    .tag(filter)
+                ForEach(TorrentFilter.allCases) { row(.state($0)) }
+            }
+            if !model.categories.isEmpty {
+                Section("Categories") {
+                    ForEach(model.categories, id: \.self) { row(.category($0)) }
+                    row(.category(""))
+                }
+            }
+            if !model.tags.isEmpty {
+                Section("Tags") {
+                    ForEach(model.tags, id: \.self) { row(.tag($0)) }
                 }
             }
         }
         .scrollContentBackground(.hidden)
     }
+
+    private func row(_ item: SidebarItem) -> some View {
+        Label {
+            Text(item.title)
+        } icon: {
+            Image(systemName: item.symbol).foregroundStyle(.secondary)
+        }
+        .badge(model.count(item))
+        .tag(item)
+    }
 }
 
-private extension Binding where Value == TorrentFilter? {
-    /// List selection wants an optional; the sidebar always has one filter selected.
-    init(_ source: Binding<TorrentFilter>) {
+private extension Binding where Value == SidebarItem? {
+    /// List selection wants an optional; the sidebar always has one item selected.
+    init(_ source: Binding<SidebarItem>) {
         self.init(get: { source.wrappedValue }, set: { if let value = $0 { source.wrappedValue = value } })
+    }
+}
+
+/// The main window's sheet, dialogs, prompts and folder picker.
+private struct MainDialogs: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @State private var promptText = ""
+    @State private var moving: Set<String> = []
+
+    func body(content: Content) -> some View {
+        @Bindable var model = model
+        content
+            .sheet(isPresented: $model.showsAddSheet) { AddTorrentSheet() }
+            .confirmationDialog(
+                removalTitle,
+                isPresented: Binding(get: { model.pendingRemoval != nil }, set: { if !$0 { model.pendingRemoval = nil } }),
+                presenting: model.pendingRemoval
+            ) { hashes in
+                Button("Remove") { model.remove(hashes, deleteFiles: false) }
+                    .keyboardShortcut(.defaultAction)
+                Button("Remove and Delete Files", role: .destructive) { model.remove(hashes, deleteFiles: true) }
+            } message: { _ in
+                Text("Removing a torrent keeps its downloaded files unless you also delete them.")
+            }
+            .alert(
+                model.prompt?.title ?? "",
+                isPresented: Binding(get: { model.prompt != nil }, set: { if !$0 { model.prompt = nil } }),
+                presenting: model.prompt
+            ) { prompt in
+                TextField("Name", text: $promptText)
+                Button(prompt.action) { model.answer(prompt, with: promptText) }
+                Button("Cancel", role: .cancel) {}
+            }
+            .onChange(of: model.prompt?.id) { promptText = model.prompt?.initial ?? "" }
+            .background { moveFolderPicker }
+            .alert(
+                "Sprout couldn't complete that",
+                isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+            ) {} message: {
+                Text(model.errorMessage ?? "")
+            }
+    }
+
+    private var removalTitle: String {
+        let count = model.pendingRemoval?.count ?? 0
+        if count == 1, let hash = model.pendingRemoval?.first, let name = model.torrents[hash]?.name {
+            return "Remove “\(name)”?"
+        }
+        return "Remove \(count) torrents?"
+    }
+
+    /// "Move Files…" asks for a folder. Kept on its own view so the button label only applies here.
+    private var moveFolderPicker: some View {
+        Color.clear
+            .fileImporter(
+                isPresented: Binding(get: { model.pendingMove != nil }, set: {
+                    if !$0, let hashes = model.pendingMove { moving = hashes; model.pendingMove = nil }
+                }),
+                allowedContentTypes: [.folder]
+            ) { result in
+                let hashes = model.pendingMove ?? moving
+                if case .success(let folder) = result, !hashes.isEmpty { model.move(hashes, to: folder) }
+                model.pendingMove = nil
+            }
+            .fileDialogConfirmationLabel("Move Here")
     }
 }

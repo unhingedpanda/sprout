@@ -54,15 +54,20 @@ struct WebAPI: Sendable {
 
     // MARK: Actions
 
-    func add(urls: [String], savePath: String? = nil, stopped: Bool = false) async throws {
-        var form = ["urls": urls.joined(separator: "\n"), "stopped": String(stopped)]
-        if let savePath { form["savepath"] = savePath }
+    func add(urls: [String], options: AddOptions) async throws {
+        var form = options.fields
+        form["urls"] = urls.joined(separator: "\n")
+        // Links have no file list yet: stop once it arrives so files can be chosen first.
+        if options.chooseFilesFirst {
+            form["stopped"] = "false"
+            form["stopCondition"] = "MetadataReceived"
+        }
         try await post("torrents/add", form)
     }
 
-    func add(torrentFiles: [URL], savePath: String? = nil, stopped: Bool = false) async throws {
-        var fields = ["stopped": String(stopped)]
-        if let savePath { fields["savepath"] = savePath }
+    func add(torrentFiles: [URL], options: AddOptions) async throws {
+        var fields = options.fields
+        if options.chooseFilesFirst { fields["stopped"] = "true" }
         var parts: [Multipart.File] = []
         for url in torrentFiles {
             let accessing = url.startAccessingSecurityScopedResource()
@@ -94,6 +99,38 @@ struct WebAPI: Sendable {
 
     func shutdown() async throws {
         try await post("app/shutdown", [:])
+    }
+
+    /// Calls a torrents/* action on several torrents, e.g. "recheck", "reannounce", "topPrio".
+    func torrents(_ action: String, _ hashes: Set<String>, _ extra: [String: String] = [:]) async throws {
+        try await post("torrents/\(action)", extra.merging(["hashes": hashes.joined(separator: "|")]) { $1 })
+    }
+
+    func rename(hash: String, to name: String) async throws {
+        try await post("torrents/rename", ["hash": hash, "name": name])
+    }
+
+    func createCategory(_ name: String) async throws {
+        try await post("torrents/createCategory", ["category": name, "savePath": ""])
+    }
+
+    func createTags(_ tags: [String]) async throws {
+        try await post("torrents/createTags", ["tags": tags.joined(separator: ",")])
+    }
+
+    func toggleAlternativeSpeeds() async throws {
+        try await post("transfer/toggleSpeedLimitsMode", [:])
+    }
+
+    // MARK: Preferences
+
+    func preferences() async throws -> [String: JSON] {
+        try JSON.decode(try await get("app/preferences")).object ?? [:]
+    }
+
+    func setPreferences(_ changes: [String: JSON]) async throws {
+        let data = try JSONSerialization.data(withJSONObject: changes.mapValues(\.foundationValue))
+        try await post("app/setPreferences", ["json": String(decoding: data, as: UTF8.self)])
     }
 
     // MARK: Transport
@@ -174,5 +211,20 @@ private struct Multipart {
         }
         line("--\(boundary)--")
         data = body
+    }
+}
+
+struct AddOptions: Sendable {
+    var savePath: String?
+    var category = ""
+    var startNow = true
+    /// Add without downloading, so files can be picked in the inspector before starting.
+    var chooseFilesFirst = false
+
+    var fields: [String: String] {
+        var form = ["stopped": String(!startNow)]
+        if let savePath { form["savepath"] = savePath }
+        if !category.isEmpty { form["category"] = category }
+        return form
     }
 }

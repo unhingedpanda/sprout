@@ -16,6 +16,12 @@ struct Torrent: Identifiable, Hashable, Sendable {
     var contentPath: String
     var seeds: Int64
     var peers: Int64
+    var category: String
+    var tags: [String]
+    /// Queue position, or -1 when queueing is off or the torrent is finished.
+    var queuePosition: Int64
+    var isSequential: Bool
+    var isForced: Bool
 
     init(hash: String, fields: [String: JSON]) {
         id = hash
@@ -32,6 +38,11 @@ struct Torrent: Identifiable, Hashable, Sendable {
         contentPath = fields.string("content_path")
         seeds = fields.int("num_seeds")
         peers = fields.int("num_leechs")
+        category = fields.string("category")
+        tags = fields.string("tags").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        queuePosition = fields["priority"]?.int ?? -1
+        isSequential = fields["seq_dl"]?.bool ?? false
+        isForced = fields["force_start"]?.bool ?? false
     }
 
     var isTransferring: Bool { downloadSpeed > 0 || uploadSpeed > 0 }
@@ -79,6 +90,7 @@ enum TorrentState: String, Sendable {
 
     var isError: Bool { self == .error || self == .missingFiles }
     var isStopped: Bool { self == .stoppedDL || self == .stoppedUP }
+    var isChecking: Bool { self == .checkingDL || self == .checkingUP || self == .checkingResumeData }
     var isDownloading: Bool {
         switch self {
         case .downloading, .forcedDL, .metaDL, .forcedMetaDL, .stalledDL, .queuedDL, .checkingDL, .allocating: true
@@ -133,11 +145,44 @@ enum TorrentFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the sidebar has selected: a state filter, a category, or a tag.
+enum SidebarItem: Hashable {
+    case state(TorrentFilter)
+    case category(String)
+    case tag(String)
+
+    var title: String {
+        switch self {
+        case .state(let filter): filter.title
+        case .category(let name): name.isEmpty ? "Uncategorized" : name
+        case .tag(let name): name
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .state(let filter): filter.symbol
+        case .category: "folder"
+        case .tag: "tag"
+        }
+    }
+
+    func includes(_ torrent: Torrent) -> Bool {
+        switch self {
+        case .state(let filter): filter.includes(torrent)
+        case .category(let name): torrent.category == name
+        case .tag(let name): torrent.tags.contains(name)
+        }
+    }
+}
+
 struct ServerState: Sendable {
     var downloadSpeed: Int64 = 0
     var uploadSpeed: Int64 = 0
     var freeSpace: Int64 = 0
     var connection = ""
+    var usesAlternativeSpeeds = false
+    var queueingEnabled = false
 
     init() {}
 
@@ -146,6 +191,8 @@ struct ServerState: Sendable {
         uploadSpeed = fields.int("up_info_speed")
         freeSpace = fields.int("free_space_on_disk")
         connection = fields.string("connection_status")
+        usesAlternativeSpeeds = fields["use_alt_speed_limits"]?.bool ?? false
+        queueingEnabled = fields["queueing"]?.bool ?? false
     }
 }
 

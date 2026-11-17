@@ -9,6 +9,8 @@ struct AddTorrentSheet: View {
     @State private var files: [URL] = []
     @State private var savePath = ""
     @State private var startNow = true
+    @State private var chooseFilesFirst = false
+    @State private var category = ""
     @State private var choosingFiles = false
     @State private var choosingFolder = false
 
@@ -45,7 +47,7 @@ struct AddTorrentSheet: View {
                         }
                 }
 
-                Section("Options") {
+                Section {
                     LabeledContent("Save to") {
                         HStack {
                             Text(savePath.isEmpty ? "Default folder" : URL(filePath: savePath).lastPathComponent)
@@ -57,7 +59,21 @@ struct AddTorrentSheet: View {
                                 }
                         }
                     }
+                    if !model.categories.isEmpty {
+                        Picker("Category", selection: $category) {
+                            Text("None").tag("")
+                            ForEach(model.categories, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
                     Toggle("Start downloading right away", isOn: $startNow)
+                        .disabled(chooseFilesFirst)
+                    Toggle("Choose files before downloading", isOn: $chooseFilesFirst)
+                } header: {
+                    Text("Options")
+                } footer: {
+                    if chooseFilesFirst {
+                        Text("Sprout waits for the file list, then stops the torrent. Pick files in the inspector and press Start.")
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -80,9 +96,14 @@ struct AddTorrentSheet: View {
     }
 
     private func add() {
-        let path = savePath.isEmpty ? nil : savePath
-        if !linkList.isEmpty { model.add(links: linkList, savePath: path, startNow: startNow) }
-        if !files.isEmpty { model.add(files: files, savePath: path, startNow: startNow) }
+        let options = AddOptions(
+            savePath: savePath.isEmpty ? nil : savePath,
+            category: category,
+            startNow: startNow,
+            chooseFilesFirst: chooseFilesFirst
+        )
+        if !linkList.isEmpty { model.add(links: linkList, options: options) }
+        if !files.isEmpty { model.add(files: files, options: options) }
         dismiss()
     }
 }

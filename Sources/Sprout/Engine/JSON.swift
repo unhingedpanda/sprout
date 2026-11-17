@@ -57,6 +57,18 @@ enum JSON: Sendable, Equatable, Decodable {
 
     var int: Int64? { double.map { Int64($0) } }
 
+    /// The value as JSONSerialization expects it, for writing.
+    var foundationValue: Any {
+        switch self {
+        case .string(let value): value
+        case .number(let value): value
+        case .bool(let value): value
+        case .array(let value): value.map(\.foundationValue)
+        case .object(let value): value.mapValues(\.foundationValue)
+        case .null: NSNull()
+        }
+    }
+
     var bool: Bool? {
         switch self {
         case .bool(let value): value

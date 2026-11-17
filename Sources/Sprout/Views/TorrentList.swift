@@ -38,20 +38,7 @@ struct TorrentList: View {
 
     @ViewBuilder
     private func rowMenu(_ hashes: Set<String>) -> some View {
-        if !hashes.isEmpty {
-            Button("Start") { model.selection = hashes; model.startSelected() }
-            Button("Stop") { model.selection = hashes; model.stopSelected() }
-            if hashes.count == 1, let torrent = hashes.first.flatMap({ model.torrents[$0] }) {
-                Divider()
-                Button("Show in Finder") { model.revealInFinder(torrent) }
-                Button("Copy Info Hash") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(torrent.id, forType: .string)
-                }
-            }
-            Divider()
-            Button("Remove…") { model.selection = hashes; model.requestRemoveSelected() }
-        }
+        if !hashes.isEmpty { TorrentActions(model: model, hashes: hashes) }
     }
 
     @ViewBuilder
@@ -73,7 +60,7 @@ struct TorrentList: View {
         } else if !model.searchText.isEmpty {
             ContentUnavailableView.search(text: model.searchText)
         } else {
-            ContentUnavailableView("Nothing in \(model.filter.title)", systemImage: model.filter.symbol)
+            ContentUnavailableView("Nothing in \(model.sidebar.title)", systemImage: model.sidebar.symbol)
         }
     }
 }

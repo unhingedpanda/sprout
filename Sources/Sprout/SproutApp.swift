@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct SproutApp: App {
@@ -12,16 +13,39 @@ struct SproutApp: App {
         }
         .defaultSize(width: 1380, height: 760)
         .commands { SproutCommands(model: appDelegate.model) }
+
+        Settings {
+            SettingsView().environment(appDelegate.model)
+        }
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let model = AppModel()
     private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+        if Preferences.notifyOnCompletion {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
         Task { await model.start() }
+    }
+
+    // Show "Download finished" even while Sprout is in front.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    // Clicking the notification selects that torrent.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard let hash = response.notification.request.content.userInfo["hash"] as? String else { return }
+        await MainActor.run {
+            model.sidebar = .state(.all)
+            model.selection = [hash]
+            NSApp.activate()
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -51,22 +75,13 @@ struct SproutCommands: Commands {
                 .keyboardShortcut("o")
         }
         CommandMenu("Torrent") {
-            Button("Start") { model.startSelected() }
-                .keyboardShortcut("r")
-                .disabled(!model.canStart)
-            Button("Stop") { model.stopSelected() }
-                .keyboardShortcut(".")
-                .disabled(!model.canStop)
-            Divider()
-            Button("Show in Finder") {
-                if let torrent = model.selectedTorrents.first { model.revealInFinder(torrent) }
+            TorrentActions(model: model, hashes: model.selection, showsShortcuts: true)
+        }
+        CommandGroup(after: .toolbar) {
+            Button(model.server.usesAlternativeSpeeds ? "Use Normal Speeds" : "Use Alternative Speeds") {
+                model.toggleAlternativeSpeeds()
             }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(model.selection.count != 1)
-            Divider()
-            Button("Remove…") { model.requestRemoveSelected() }
-                .keyboardShortcut(.delete)
-                .disabled(model.selection.isEmpty)
+            .keyboardShortcut("l", modifiers: [.command, .option])
         }
         CommandGroup(after: .sidebar) {
             Button(model.showsInspector ? "Hide Inspector" : "Show Inspector") {

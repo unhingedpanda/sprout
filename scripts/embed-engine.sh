@@ -1,14 +1,12 @@
 #!/bin/sh
-# Copies the qbittorrent-nox engine into Sprout.app/Contents/Helpers and signs it.
-# Override the source with QBT_ENGINE_BINARY. The default is a local dev build that
-# links Homebrew libraries, so the resulting app only runs on a machine with them.
+# Copies the self-contained engine bundle into Sprout.app/Contents/Helpers.
+# Make the bundle first with scripts/bundle-engine.sh, or point QBT_ENGINE_APP at one.
 set -eu
-ENGINE="${QBT_ENGINE_BINARY:-$SRCROOT/../../oss/qbt-engine-build/qbittorrent-nox.app/Contents/MacOS/qbittorrent-nox}"
+ENGINE="${QBT_ENGINE_APP:-$SRCROOT/build/engine/qbittorrent-nox.app}"
 DEST="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
-if [ ! -x "$ENGINE" ]; then
-  echo "error: engine not found at $ENGINE (set QBT_ENGINE_BINARY)"
+if [ ! -d "$ENGINE" ]; then
+  echo "error: engine bundle not found at $ENGINE (run scripts/bundle-engine.sh or set QBT_ENGINE_APP)"
   exit 1
 fi
-mkdir -p "$DEST"
-cp -f "$ENGINE" "$DEST/qbittorrent-nox"
-codesign --force --sign - "$DEST/qbittorrent-nox"
+rm -rf "$DEST" && mkdir -p "$DEST"
+ditto "$ENGINE" "$DEST/qbittorrent-nox.app"

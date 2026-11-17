@@ -22,6 +22,8 @@ final class EngineController {
     static let profileURL = URL.applicationSupportDirectory.appending(path: "Sprout/Engine", directoryHint: .isDirectory)
     static var logURL: URL { profileURL.appending(path: "engine.log") }
     private static var configURL: URL { profileURL.appending(path: "qBittorrent/config/qBittorrent.ini") }
+    /// The running engine's process ID, so a launch after a crash can stop the engine left behind.
+    private static var pidURL: URL { profileURL.appending(path: "engine.pid") }
 
     var api: WebAPI? {
         if case .running(let api) = status { api } else { nil }
@@ -49,6 +51,7 @@ final class EngineController {
         }
         if process.isRunning { process.terminate() }
         self.process = nil
+        try? FileManager.default.removeItem(at: Self.pidURL)
         status = .stopped
     }
 
@@ -60,6 +63,7 @@ final class EngineController {
 
     private func launch() async throws -> WebAPI {
         let binary = try Self.engineBinary()
+        await Self.stopLeftoverEngine()
         guard let port = Self.freeLoopbackPort() else {
             throw LaunchError(errorDescription: "Sprout couldn't find a free local port for the engine.")
         }
@@ -81,6 +85,7 @@ final class EngineController {
         }
         try process.run()
         self.process = process
+        try? String(process.processIdentifier).write(to: Self.pidURL, atomically: true, encoding: .utf8)
 
         let api = WebAPI(baseURL: URL(string: "http://127.0.0.1:\(port)/")!, apiKey: apiKey)
         for _ in 0..<150 {
@@ -93,16 +98,47 @@ final class EngineController {
 
     private func engineExited(code: Int32) {
         process = nil
+        try? FileManager.default.removeItem(at: Self.pidURL)
         if case .running = status {
             status = .failed("The engine stopped unexpectedly (exit code \(code)). \(Self.logTail())")
         }
+    }
+
+    /// If Sprout crashed, its engine may still be running and holding the profile, which would
+    /// make this launch fail. Ask that engine to save and quit, and force it only if it won't.
+    private static func stopLeftoverEngine() async {
+        guard let text = try? String(contentsOf: pidURL, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+        defer { try? FileManager.default.removeItem(at: pidURL) }
+        guard isEngine(pid) else { return }
+
+        let ini = IniFile((try? String(contentsOf: configURL, encoding: .utf8)) ?? "")
+        if let port = ini.value(section: "WebUI", key: "Port"), let key = ini.value(section: "WebUI", key: "APIKey"),
+           let url = URL(string: "http://127.0.0.1:\(port)/") {
+            try? await WebAPI(baseURL: url, apiKey: key).shutdown()
+        }
+        for signal in [0, SIGTERM, SIGKILL] {
+            if signal != 0 { kill(pid, signal) }
+            for _ in 0..<100 where isEngine(pid) {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if !isEngine(pid) { return }
+        }
+    }
+
+    /// True while `pid` is alive and is a qbittorrent-nox process, so a reused PID is never touched.
+    private static func isEngine(_ pid: pid_t) -> Bool {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return URL(filePath: path).lastPathComponent == "qbittorrent-nox"
     }
 
     private static func engineBinary() throws -> URL {
         if let override = ProcessInfo.processInfo.environment["SPROUT_ENGINE"] {
             return URL(filePath: override)
         }
-        let url = Bundle.main.bundleURL.appending(path: "Contents/Helpers/qbittorrent-nox")
+        let url = Bundle.main.bundleURL.appending(path: "Contents/Helpers/qbittorrent-nox.app/Contents/MacOS/qbittorrent-nox")
         guard FileManager.default.isExecutableFile(atPath: url.path) else {
             throw LaunchError(errorDescription: "The engine is missing from the app bundle.")
         }

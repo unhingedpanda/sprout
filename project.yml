@@ -12,8 +12,7 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
     ENABLE_USER_SCRIPT_SANDBOXING: NO
-    # ponytail: hardened runtime off while the engine links Homebrew dylibs; turn on with the self-contained engine for notarization
-    ENABLE_HARDENED_RUNTIME: NO
+    ENABLE_HARDENED_RUNTIME: YES
     ASSETCATALOG_COMPILER_APPICON_NAME: ""
 targets:
   Sprout:
