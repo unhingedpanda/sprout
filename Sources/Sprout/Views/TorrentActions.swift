@@ -56,13 +56,15 @@ struct TorrentActions: View {
 
         Toggle("Download in Order", isOn: Binding(
             get: { !none && torrents.allSatisfy(\.isSequential) },
-            set: { _ in model.run("toggleSequentialDownload", on: hashes) }
+            // The engine only toggles: send it to the torrents not yet in the state chosen,
+            // so a mixed selection all ends up the same instead of each one flipping.
+            set: { on in model.run("toggleSequentialDownload", on: Set(torrents.filter { $0.isSequential != on }.map(\.id))) }
         ))
         .help("Fetch pieces from start to end, so media can be previewed while it downloads")
         .disabled(none || torrents.allSatisfy { $0.progress >= 1 })
         Toggle("Download First and Last Pieces First", isOn: Binding(
             get: { !none && torrents.allSatisfy(\.firstLastPiecesFirst) },
-            set: { _ in model.run("toggleFirstLastPiecePrio", on: hashes) }
+            set: { on in model.run("toggleFirstLastPiecePrio", on: Set(torrents.filter { $0.firstLastPiecesFirst != on }.map(\.id))) }
         ))
         .help("Fetch each file's ends early, so video players can open a file before it's complete")
         .disabled(none || torrents.allSatisfy { $0.progress >= 1 })

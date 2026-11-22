@@ -79,7 +79,8 @@ struct AddTorrentSheet: View {
                             ForEach(model.categories, id: \.self) { Text($0).tag($0) }
                         }
                     }
-                    Toggle("Start downloading right away", isOn: $startNow)
+                    // Off while choosing files first: that torrent stops once its file list arrives.
+                    Toggle("Start downloading right away", isOn: chooseFilesFirst ? .constant(false) : $startNow)
                         .disabled(chooseFilesFirst)
                     Toggle("Choose files before downloading", isOn: $chooseFilesFirst)
                 } header: {

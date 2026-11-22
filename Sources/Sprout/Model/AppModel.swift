@@ -16,6 +16,8 @@ final class AppModel {
     private(set) var tags: [String] = []
     /// Whether adding a torrent that's already in the list merges its trackers (engine `merge_trackers`).
     var mergesTrackers = true
+    /// "Remove and Delete Files" moves files to the Trash (engine option), so the dialog can say so.
+    var deletesToTrash = true
     /// A short message shown over the list, e.g. after adding a torrent that was already there.
     var notice: Notice?
     /// Torrents whose speed and seeding limits are being edited.
@@ -36,6 +38,8 @@ final class AppModel {
     var sortKey: SortKey = .added
     var sortAscending = false
     var showsInspector = true
+    /// Torrents to select once they appear in the list (just added with "Choose files first").
+    private var awaitingSelection = Set<String>()
     /// Bumped by Edit › Filter Torrents (⌘F); the main window moves focus to its search field.
     var searchFocusRequests = 0
     var showsAddSheet = false
@@ -83,14 +87,30 @@ final class AppModel {
 
     /// The engine ships with tracker merging off, so adding a torrent twice just fails.
     /// Sprout turns it on once; after that the Settings switch decides.
+    /// Engine settings Sprout changes from qBittorrent's defaults, each applied once, in order.
+    /// Later changes in Settings are the user's and are never overwritten.
+    private static let engineDefaults: [[String: JSON]] = [
+        ["merge_trackers": .bool(true)],
+        // Mac users expect deleted files in the Trash, where they can be put back.
+        ["torrent_content_remove_option": .string("MoveToTrash")],
+    ]
+
     private func applyFirstRunDefaults(_ api: WebAPI) async {
-        let key = "AppliedEngineDefaults"
-        if !UserDefaults.standard.bool(forKey: key) {
-            if (try? await api.setPreferences(["merge_trackers": .bool(true)])) != nil {
-                UserDefaults.standard.set(true, forKey: key)
-            }
+        let defaults = UserDefaults.standard
+        // Builds before versioning recorded only that the first default was applied.
+        if defaults.bool(forKey: "AppliedEngineDefaults"), defaults.integer(forKey: "EngineDefaultsVersion") == 0 {
+            defaults.set(1, forKey: "EngineDefaultsVersion")
         }
-        if let prefs = try? await api.preferences() { mergesTrackers = prefs["merge_trackers"]?.bool ?? false }
+        var applied = defaults.integer(forKey: "EngineDefaultsVersion")
+        while applied < Self.engineDefaults.count,
+              (try? await api.setPreferences(Self.engineDefaults[applied])) != nil {
+            applied += 1
+            defaults.set(applied, forKey: "EngineDefaultsVersion")
+        }
+        if let prefs = try? await api.preferences() {
+            mergesTrackers = prefs["merge_trackers"]?.bool ?? false
+            deletesToTrash = prefs["torrent_content_remove_option"]?.string == "MoveToTrash"
+        }
     }
 
     private func syncLoop(_ api: WebAPI) async {
@@ -144,6 +164,10 @@ final class AppModel {
         let previous = torrents
         torrents = rawTorrents.reduce(into: [:]) { $0[$1.key] = Torrent(hash: $1.key, fields: $1.value) }
         selection.formIntersection(torrents.keys)
+        if !awaitingSelection.isEmpty {
+            let arrived = awaitingSelection.intersection(torrents.keys)
+            if !arrived.isEmpty { selection = arrived; awaitingSelection = [] }
+        }
         if hasSynced { notifyFinished(since: previous) }
         hasSynced = true
         holdSleepWhileDownloading()
@@ -223,8 +247,10 @@ final class AppModel {
         let known = unique.map { Magnet.infoHash($0).flatMap(existingTorrentID) }
         let allKnown = !known.contains(nil)
         perform { [self] api in
-            try await Self.adding(allKnown: allKnown) { try await api.add(urls: unique, options: options) }
-            if options.chooseFilesFirst { showFilesToChoose(unique.compactMap(Magnet.infoHash)) }
+            var added: [String] = []
+            try await Self.adding(allKnown: allKnown) { added = try await api.add(urls: unique, options: options) }
+            // Links the engine must fetch first come back pending, without an ID: use the magnet's hash.
+            if options.chooseFilesFirst { showFilesToChoose(added.isEmpty ? unique.compactMap(Magnet.infoHash) : added) }
             reportDuplicates(Set(known.compactMap { $0 }), of: unique.count)
         }
     }
@@ -238,18 +264,20 @@ final class AppModel {
             }
             // Two copies of one file count once; every file must be recognised to treat a refusal as a duplicate.
             let allKnown = parsed.count == files.count && !known.contains(nil)
-            try await Self.adding(allKnown: allKnown) { try await api.add(torrentFiles: files, options: options) }
-            if options.chooseFilesFirst { showFilesToChoose(parsed.compactMap { $0["hash"]?.string }) }
+            var added: [String] = []
+            try await Self.adding(allKnown: allKnown) { added = try await api.add(torrentFiles: files, options: options) }
+            if options.chooseFilesFirst { showFilesToChoose(added) }
             reportDuplicates(Set(known.compactMap { $0 }), of: files.count)
         }
     }
 
     /// After "Choose files before downloading", selects the new torrents and opens the Files tab,
-    /// where the Add sheet told the user to pick. The rows appear with the next refresh.
+    /// where the Add sheet told the user to pick. Uses the engine's own IDs (a hybrid torrent's ID
+    /// is not its v1 hash); the selection holds until the rows arrive with the next refresh.
     private func showFilesToChoose(_ hashes: [String]) {
         guard !hashes.isEmpty else { return }
         sidebar = .state(.all)
-        selection = Set(hashes.map { $0.lowercased() })
+        awaitingSelection = Set(hashes.map { $0.lowercased() })
         showsInspector = true
         UserDefaults.standard.set("files", forKey: "inspectorTab")
     }
@@ -365,7 +393,10 @@ final class AppModel {
         perform { try await $0.call("torrents/removeCategories", ["categories": name]) }
     }
 
+    var pendingTagRemoval: String?
+
     func removeTag(_ name: String) {
+        pendingTagRemoval = nil
         if sidebar == .tag(name) { sidebar = .state(.all) }
         perform { try await $0.call("torrents/deleteTags", ["tags": name]) }
     }

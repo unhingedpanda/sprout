@@ -12,7 +12,7 @@ struct NoticeBanner: View {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Image(systemName: "square.on.square")
                         .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(notice.title)
                             .font(.body.weight(.semibold))
                             .lineLimit(2)
@@ -20,6 +20,7 @@ struct NoticeBanner: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .accessibilityElement(children: .combine)
                     Spacer(minLength: 0)
                     Button("Dismiss", systemImage: "xmark") { model.notice = nil }
                         .labelStyle(.iconOnly)
@@ -31,8 +32,9 @@ struct NoticeBanner: View {
                 .glassEffect(in: .rect(cornerRadius: 16))
                 .padding(16)
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .contain)
                 .task(id: notice.id) {
+                    AccessibilityNotification.Announcement(notice.title).post()
                     try? await Task.sleep(for: .seconds(8))
                     if model.notice?.id == notice.id { model.notice = nil }
                 }

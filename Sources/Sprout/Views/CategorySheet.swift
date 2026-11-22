@@ -16,9 +16,10 @@ struct CategorySheet: View {
                 Section {
                     LabeledContent("Save to") {
                         HStack {
-                            Text(folder.isEmpty ? "Default folder › \(category)" : URL(filePath: folder).lastPathComponent)
+                            Text(folder.isEmpty ? "Default location › \(category)" : URL(filePath: folder).lastPathComponent)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.middle)
                                 .help(folder)
                             Button("Change…") { choosing = true }
                                 .fileImporter(isPresented: $choosing, allowedContentTypes: [.folder]) { result in

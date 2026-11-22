@@ -177,7 +177,7 @@ private struct SpeedFigure: View {
         let value = value >= Format.movingThreshold ? value : 0
         let parts = Format.speedParts(value)
         VStack(alignment: .leading, spacing: 7) {
-            DotText(text: parts.number, dot: dot, color: value > 0 ? .signal : .lit, style: value > 0 ? style : .solid)
+            DotText(text: parts.number, dot: dot, color: value > 0 ? .signal : .secondary, style: value > 0 ? style : .solid)
             Text(value > 0 ? "\(parts.unit) \(direction)" : "idle \(direction)")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)

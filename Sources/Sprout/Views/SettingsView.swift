@@ -51,6 +51,8 @@ final class EngineSettings {
         guard let api else { return }
         Task {
             do { try await api.setPreferences(changes) } catch {
+                // Show what the engine really has, not the change that didn't stick.
+                if let current = try? await api.preferences() { values = current }
                 message = "Sprout couldn't save that setting. \(error.localizedDescription)"
             }
         }
@@ -102,8 +104,12 @@ private struct SettingsForm<Content: View>: View {
             if settings.isLoaded {
                 content
             } else {
-                Text(settings.message ?? "Reading the engine's settings…")
-                    .foregroundStyle(.secondary)
+                if let message = settings.message {
+                    Text(message).foregroundStyle(Color.fault)
+                    Button("Try Again") { Task { await settings.load(settings.api) } }
+                } else {
+                    Text("Reading the engine's settings…").foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -124,12 +130,15 @@ struct UnitField: View {
     @Binding var value: Double
     let unit: String
     var fraction = false
+    /// For fields whose visible title repeats in another section (normal and alternative limits).
+    var spokenTitle: String?
 
     var body: some View {
         LabeledContent(title) {
             HStack(spacing: 6) {
                 TextField(title, value: $value, format: .number.precision(.fractionLength(fraction ? 0...2 : 0...0)))
                     .labelsHidden()
+                    .accessibilityLabel(spokenTitle ?? title)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 80)
                 Text(unit).foregroundStyle(.secondary)
@@ -177,27 +186,27 @@ private struct SpeedSettings: View {
     var body: some View {
         SettingsForm(settings: settings, scrolls: true) {
             Section {
-                UnitField(title: "Download", value: settings.number("dl_limit", scale: 1024), unit: "KB/s")
-                UnitField(title: "Upload", value: settings.number("up_limit", scale: 1024), unit: "KB/s")
+                UnitField(title: "Download", value: settings.number("dl_limit", scale: 1024), unit: "KB/s", spokenTitle: "Download limit")
+                UnitField(title: "Upload", value: settings.number("up_limit", scale: 1024), unit: "KB/s", spokenTitle: "Upload limit")
             } header: {
                 Text("Normal limits")
             } footer: {
                 Text("0 means no limit.")
             }
             Section {
-                UnitField(title: "Download", value: settings.number("alt_dl_limit", scale: 1024), unit: "KB/s")
-                UnitField(title: "Upload", value: settings.number("alt_up_limit", scale: 1024), unit: "KB/s")
+                UnitField(title: "Download", value: settings.number("alt_dl_limit", scale: 1024), unit: "KB/s", spokenTitle: "Alternative download limit")
+                UnitField(title: "Upload", value: settings.number("alt_up_limit", scale: 1024), unit: "KB/s", spokenTitle: "Alternative upload limit")
             } header: {
                 Text("Alternative limits")
             } footer: {
-                Text("Switch to these with the tortoise in the toolbar or ⌥⌘L, for example while you need the connection for something else.")
+                Text("Switch to these with the tortoise in the toolbar or ⌥⌘L, for example while you need the connection for something else. 0 means no limit.")
             }
             Section {
                 Toggle("Use alternative limits on a schedule", isOn: settings.flag("scheduler_enabled"))
                 if settings.values["scheduler_enabled"]?.bool == true {
                     TimeField(title: "From", settings: settings, hour: "schedule_from_hour", minute: "schedule_from_min")
                     TimeField(title: "To", settings: settings, hour: "schedule_to_hour", minute: "schedule_to_min")
-                    Picker("On", selection: settings.integer("scheduler_days")) {
+                    Picker("Days", selection: settings.integer("scheduler_days")) {
                         Text("Every day").tag(0)
                         Text("Weekdays").tag(1)
                         Text("Weekends").tag(2)
@@ -224,15 +233,15 @@ private struct SeedingSettings: View {
         SettingsForm(settings: settings) {
             Section {
                 // The engine ignores the switch alone: turning it on also sends a starting value.
-                Toggle("Stop at a share ratio", isOn: settings.flag("max_ratio_enabled", startingAt: ("max_ratio", 2)))
+                Toggle("Limit the share ratio", isOn: settings.flag("max_ratio_enabled", startingAt: ("max_ratio", 2)))
                 if settings.values["max_ratio_enabled"]?.bool == true {
                     UnitField(title: "Ratio", value: settings.number("max_ratio", whole: false), unit: "× size", fraction: true)
                 }
-                Toggle("Stop after a seeding time", isOn: settings.flag("max_seeding_time_enabled", startingAt: ("max_seeding_time", 24 * 60)))
+                Toggle("Limit the seeding time", isOn: settings.flag("max_seeding_time_enabled", startingAt: ("max_seeding_time", 24 * 60)))
                 if settings.values["max_seeding_time_enabled"]?.bool == true {
                     UnitField(title: "Time", value: settings.number("max_seeding_time", scale: 60), unit: "hours")
                 }
-                Toggle("Stop after a time without uploads", isOn: settings.flag("max_inactive_seeding_time_enabled", startingAt: ("max_inactive_seeding_time", 60)))
+                Toggle("Limit the time without uploads", isOn: settings.flag("max_inactive_seeding_time_enabled", startingAt: ("max_inactive_seeding_time", 60)))
                 if settings.values["max_inactive_seeding_time_enabled"]?.bool == true {
                     UnitField(title: "Idle", value: settings.number("max_inactive_seeding_time"), unit: "minutes")
                 }
@@ -265,7 +274,9 @@ private struct QueueSettings: View {
                     UnitField(title: "In total", value: settings.number("max_active_torrents", zeroIsUnlimited: true), unit: "at once")
                 }
             } footer: {
-                Text("Torrents over the limit wait in the queue. Force Start skips it. 0 means no limit.")
+                Text(settings.values["queueing_enabled"]?.bool == true
+                     ? "Torrents over the limit wait in the queue. Force Start skips it. 0 means no limit."
+                     : "Torrents over the limit wait in the queue. Force Start skips it.")
             }
         }
     }
@@ -316,6 +327,12 @@ private struct ConnectionSettings: View {
                 guard let value = item["value"]?.string else { return nil }
                 return NetworkNames.label(value).map { ($0, value) }
             }
+            // Real networks before tunnels, each group in name order (utun0, utun1, …).
+            .sorted { a, b in
+                let aTunnel = a.name.hasPrefix("Tunnel"), bTunnel = b.name.hasPrefix("Tunnel")
+                if aTunnel != bTunnel { return !aTunnel }
+                return a.value.localizedStandardCompare(b.value) == .orderedAscending
+            }
         }
     }
 }
@@ -344,8 +361,15 @@ private struct DownloadSettings: View {
                 }
                 Toggle("Add .!qB to unfinished files", isOn: settings.flag("incomplete_files_ext"))
                 Toggle("Save new torrents in their category's folder", isOn: settings.flag("auto_tmm_enabled"))
+                Toggle("Move deleted files to the Trash", isOn: Binding(
+                    get: { settings.values["torrent_content_remove_option"]?.string == "MoveToTrash" },
+                    set: { on in
+                        settings.set(["torrent_content_remove_option": .string(on ? "MoveToTrash" : "Delete")])
+                        model.deletesToTrash = on
+                    }
+                ))
             } footer: {
-                Text("Finished downloads move to the save folder. A category's folder is set from its menu in the sidebar.")
+                Text("Finished downloads move to the save folder. A category's folder is set from its menu in the sidebar. Files you delete with a torrent go to the Trash when that's on, and are gone for good when it's off.")
             }
 
             Section {

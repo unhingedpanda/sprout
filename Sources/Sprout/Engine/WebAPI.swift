@@ -54,7 +54,9 @@ struct WebAPI: Sendable {
 
     // MARK: Actions
 
-    func add(urls: [String], options: AddOptions) async throws {
+    /// Returns the IDs the engine gave the torrents it added (`added_torrent_ids`).
+    @discardableResult
+    func add(urls: [String], options: AddOptions) async throws -> [String] {
         var form = options.fields
         form["urls"] = urls.joined(separator: "\n")
         // Links have no file list yet: stop once it arrives so files can be chosen first.
@@ -62,10 +64,11 @@ struct WebAPI: Sendable {
             form["stopped"] = "false"
             form["stopCondition"] = "MetadataReceived"
         }
-        try await post("torrents/add", form)
+        return Self.addedIDs(try await post("torrents/add", form))
     }
 
-    func add(torrentFiles: [URL], options: AddOptions) async throws {
+    @discardableResult
+    func add(torrentFiles: [URL], options: AddOptions) async throws -> [String] {
         var fields = options.fields
         if options.chooseFilesFirst { fields["stopped"] = "true" }
         var parts: [Multipart.File] = []
@@ -74,7 +77,11 @@ struct WebAPI: Sendable {
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             parts.append(.init(field: "torrents", filename: url.lastPathComponent, data: try Data(contentsOf: url)))
         }
-        try await postMultipart("torrents/add", fields: fields, files: parts)
+        return Self.addedIDs(try await postMultipart("torrents/add", fields: fields, files: parts))
+    }
+
+    private static func addedIDs(_ data: Data) -> [String] {
+        ((try? JSON.decode(data))?["added_torrent_ids"]?.array ?? []).compactMap(\.string)
     }
 
     func start(_ hashes: Set<String>) async throws {

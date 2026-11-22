@@ -330,6 +330,8 @@ private struct PeersPane: View {
     @State private var peers: [Peer] = []
     @State private var addingPeers = false
     @State private var banning: Peer?
+    /// Kept from when the dialog opened, so the title doesn't read "Ban ?" as it closes.
+    @State private var banningAddress = ""
 
     var body: some View {
         List(peers) { peer in
@@ -360,7 +362,7 @@ private struct PeersPane: View {
             .contextMenu {
                 Button("Copy Address") { copy(peer.id) }
                 Divider()
-                Button("Ban Peer…") { banning = peer }
+                Button("Ban Peer…") { banningAddress = peer.address; banning = peer }
             }
         }
         .scrollContentBackground(.hidden)
@@ -385,7 +387,7 @@ private struct PeersPane: View {
                 model.run { try await $0.call("torrents/addPeers", ["hashes": hash, "peers": lines.joined(separator: "|")]) }
             }
         }
-        .confirmationDialog("Ban \(banning?.address ?? "")?", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }),
+        .confirmationDialog("Ban \(banning?.address ?? banningAddress)?", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }),
                             presenting: banning) { peer in
             Button("Ban Peer", role: .destructive) {
                 model.run { try await $0.call("transfer/banPeers", ["peers": peer.id]) }
@@ -422,7 +424,6 @@ private struct TrackersPane: View {
     @State private var webSeeds: [String] = []
     @State private var adding: Adding?
     @State private var editing: Tracker?
-    @State private var editedURL = ""
 
     enum Adding: String, Identifiable {
         case trackers, webSeeds
@@ -503,13 +504,9 @@ private struct TrackersPane: View {
                 }
             }
         }
-        .alert("Edit Tracker", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
-               presenting: editing) { tracker in
-            TextField("URL", text: $editedURL)
-            Button("Save") { edit(tracker) }
-            Button("Cancel", role: .cancel) {}
+        .sheet(item: $editing) { tracker in
+            TrackerEditSheet(url: tracker.url) { newURL in edit(tracker, to: newURL) }
         }
-        .onChange(of: editing?.url) { editedURL = editing?.url ?? "" }
         .polling(id: torrent.id) { await load() }
     }
 
@@ -560,9 +557,8 @@ private struct TrackersPane: View {
         change { try await $0.call("torrents/removeTrackers", ["hash": hash, "urls": encoded]) }
     }
 
-    private func edit(_ tracker: Tracker) {
-        let url = editedURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        editing = nil
+    private func edit(_ tracker: Tracker, to newURL: String) {
+        let url = newURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty, url != tracker.url else { return }
         let hash = torrent.id
         change { try await $0.call("torrents/editTracker", ["hash": hash, "url": tracker.url, "newUrl": url]) }
@@ -638,6 +634,8 @@ struct LinesSheet: View {
                     submit(lines)
                     dismiss()
                 }
+                // Return starts a new line in the list, so the button takes ⌘Return.
+                .keyboardShortcut(.return, modifiers: .command)
                 .tint(.action)
                 .disabled(lines.isEmpty)
             }
@@ -653,5 +651,42 @@ private struct PaneSectionHeader: View {
 
     var body: some View {
         Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+    }
+}
+
+/// Edits one tracker's address. A sheet, not an alert: tracker URLs with passkeys are long.
+private struct TrackerEditSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let url: String
+    let save: (String) -> Void
+
+    @State private var text = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Edit Tracker", subtitle: URL(string: url)?.host() ?? url)
+            Form {
+                Section {
+                    TextField("Address", text: $text, axis: .vertical)
+                        .lineLimit(2...4)
+                } footer: {
+                    Text("The torrent asks this address for peers from now on.")
+                }
+            }
+            .sheetForm()
+        }
+        .sproutSheet(width: 460)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    save(text)
+                    dismiss()
+                }
+                .tint(.action)
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == url)
+            }
+        }
+        .onAppear { text = url }
     }
 }

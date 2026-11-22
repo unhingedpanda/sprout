@@ -21,8 +21,13 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder
     private var content: some View {
+        // MainView sets these too; the starting and failed screens need them as well.
+        status.containerBackground(Color.ground, for: .window).tint(.lit)
+    }
+
+    @ViewBuilder
+    private var status: some View {
         switch model.engine.status {
         case .running:
             MainView()

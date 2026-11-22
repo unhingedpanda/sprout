@@ -119,7 +119,7 @@ struct SidebarView: View {
                 Section("Tags") {
                     ForEach(model.tags, id: \.self) { name in
                         row(.tag(name)).contextMenu {
-                            Button("Remove Tag") { model.removeTag(name) }
+                            Button("Remove Tag…") { model.pendingTagRemoval = name }
                         }
                     }
                 }
@@ -162,10 +162,15 @@ private struct MainDialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     @State private var promptText = ""
     @State private var moving: Set<String> = []
+    /// Dialog titles kept from when each dialog opened: the model value is cleared as it closes,
+    /// which made titles flash "Remove 0 torrents?" during the closing animation.
+    @State private var shownRemoval = ""
+    @State private var shownCategory = ""
+    @State private var shownTag = ""
 
     func body(content: Content) -> some View {
         @Bindable var model = model
-        content
+        return keepingTitles(content
             .sheet(isPresented: $model.showsAddSheet) { AddTorrentSheet() }
             .sheet(isPresented: $model.showsCreateSheet) { CreateTorrentSheet() }
             .sheet(item: Binding(get: { model.pendingLimits.map(HashSet.init) }, set: { model.pendingLimits = $0?.hashes })) {
@@ -175,7 +180,7 @@ private struct MainDialogs: ViewModifier {
                 CategorySheet(category: $0.name)
             }
             .confirmationDialog(
-                removalTitle,
+                model.pendingRemoval != nil ? removalTitle : shownRemoval,
                 isPresented: Binding(get: { model.pendingRemoval != nil }, set: { if !$0 { model.pendingRemoval = nil } }),
                 presenting: model.pendingRemoval
             ) { hashes in
@@ -183,7 +188,9 @@ private struct MainDialogs: ViewModifier {
                     .keyboardShortcut(.defaultAction)
                 Button("Remove and Delete Files", role: .destructive) { model.remove(hashes, deleteFiles: true) }
             } message: { _ in
-                Text("Removing a torrent keeps its downloaded files unless you also delete them.")
+                Text(model.deletesToTrash
+                     ? "Removing a torrent keeps its downloaded files. Deleted files go to the Trash."
+                     : "Removing a torrent keeps its downloaded files. Deleted files skip the Trash and can’t be recovered.")
             }
             .alert(
                 model.prompt?.title ?? "",
@@ -192,12 +199,13 @@ private struct MainDialogs: ViewModifier {
             ) { prompt in
                 TextField("Name", text: $promptText)
                 Button(prompt.action) { model.answer(prompt, with: promptText) }
+                    .disabled(promptText.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button("Cancel", role: .cancel) {}
             }
             .onChange(of: model.prompt?.id) { promptText = model.prompt?.initial ?? "" }
             .background { moveFolderPicker }
             .confirmationDialog(
-                "Remove the category “\(model.pendingCategoryRemoval ?? "")”?",
+                "Remove the category “\(model.pendingCategoryRemoval ?? shownCategory)”?",
                 isPresented: Binding(get: { model.pendingCategoryRemoval != nil }, set: { if !$0 { model.pendingCategoryRemoval = nil } }),
                 presenting: model.pendingCategoryRemoval
             ) { name in
@@ -210,7 +218,25 @@ private struct MainDialogs: ViewModifier {
                 isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
             ) {} message: {
                 Text(model.errorMessage ?? "")
+            })
+    }
+
+    /// The tag dialog and the kept dialog titles, split out so the body type-checks in time.
+    private func keepingTitles(_ view: some View) -> some View {
+        view
+            .confirmationDialog(
+                "Remove the tag “\(model.pendingTagRemoval ?? shownTag)”?",
+                isPresented: Binding(get: { model.pendingTagRemoval != nil }, set: { if !$0 { model.pendingTagRemoval = nil } }),
+                presenting: model.pendingTagRemoval
+            ) { name in
+                Button("Remove Tag", role: .destructive) { model.removeTag(name) }
+            } message: { name in
+                let count = model.torrents.values.count { $0.tags.contains(name) }
+                Text(count == 0 ? "No torrents use it." : count == 1 ? "1 torrent loses the tag. Its files stay where they are." : "\(count) torrents lose the tag. Their files stay where they are.")
             }
+            .onChange(of: model.pendingRemoval) { if model.pendingRemoval != nil { shownRemoval = removalTitle } }
+            .onChange(of: model.pendingCategoryRemoval) { if let name = model.pendingCategoryRemoval { shownCategory = name } }
+            .onChange(of: model.pendingTagRemoval) { if let name = model.pendingTagRemoval { shownTag = name } }
     }
 
     private func categoryRemovalMessage(_ name: String) -> String {
