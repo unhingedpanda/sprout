@@ -90,7 +90,7 @@ and the About window lists each with its version and source.
 
 ## Not done yet
 
-- Notarized release: `scripts/release.sh` is ready but has not produced a release yet.
+- Notarized release: v0.1.0 is published as an unnotarized, ad hoc signed pre-release (Apple agreement still pending). Re-run `scripts/release.sh` with a Developer ID once notarization works.
 - Intel Macs: the engine bundle is Apple silicon only.
 - Importing torrents from another client.
 
