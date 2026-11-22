@@ -71,6 +71,7 @@ extension View {
 // MARK: General
 
 private struct GeneralPane: View {
+    @Environment(AppModel.self) private var model
     let torrent: Torrent
     let api: WebAPI
 
@@ -114,8 +115,22 @@ private struct GeneralPane: View {
                 LabeledContent("Wasted", value: Format.bytes(properties.int("total_wasted")))
             }
 
+            Section {
+                LabeledContent("Download", value: limit(torrent.downloadLimit))
+                LabeledContent("Upload", value: limit(torrent.uploadLimit))
+                LabeledContent("Seeding", value: torrent.shareLimits.summary)
+            } header: {
+                HStack {
+                    Text("Limits")
+                    Spacer()
+                    Button("Change…") { model.pendingLimits = [torrent.id] }
+                        .buttonStyle(.link)
+                        .font(.callout)
+                }
+            }
+
             Section("Torrent") {
-                LabeledContent("Size", value: Format.bytes(properties.int("total_size")))
+                LabeledContent("Size", value: properties.int("total_size") < 0 ? "Unknown" : Format.bytes(properties.int("total_size")))
                 LabeledContent("Pieces", value: piecesSummary)
                 LabeledContent("Added", value: Format.date(torrent.addedOn))
                 LabeledContent("Completed", value: Format.date(date("completion_date")))
@@ -134,8 +149,20 @@ private struct GeneralPane: View {
                         Text(properties.string("comment")).textSelection(.enabled)
                     }
                 }
-                LabeledContent("Info hash") {
-                    Text(torrent.id).font(.caption.monospaced()).textSelection(.enabled)
+                if torrent.infoHashV1.isEmpty && torrent.infoHashV2.isEmpty {
+                    LabeledContent("Info hash") {
+                        Text(torrent.id).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                }
+                if !torrent.infoHashV1.isEmpty {
+                    LabeledContent(torrent.infoHashV2.isEmpty ? "Info hash" : "Info hash v1") {
+                        Text(torrent.infoHashV1).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                }
+                if !torrent.infoHashV2.isEmpty {
+                    LabeledContent(torrent.infoHashV1.isEmpty ? "Info hash" : "Info hash v2") {
+                        Text(torrent.infoHashV2).font(.caption.monospaced()).textSelection(.enabled)
+                    }
                 }
             }
         }
@@ -148,6 +175,10 @@ private struct GeneralPane: View {
             if let fields = await props?.object { properties = fields }
             if let states = await states { pieces = states }
         }
+    }
+
+    private func limit(_ bytes: Int64) -> String {
+        bytes > 0 ? "\(Format.bytes(bytes))/s" : "No limit"
     }
 
     /// Connected count, plus the swarm size the trackers report when they report one.
@@ -175,8 +206,36 @@ private struct FilesPane: View {
     let torrent: Torrent
     let api: WebAPI
 
+    @Environment(AppModel.self) private var model
     @State private var files: [TorrentFile] = []
-    @State private var error: String?
+    @State private var renaming: Rename?
+    @State private var newName = ""
+
+    struct Rename: Equatable {
+        let oldPath: String
+        let isFolder: Bool
+    }
+
+    /// The folder holding this file inside the torrent, if it's in one.
+    private func folder(of file: TorrentFile) -> String? {
+        let parts = file.name.split(separator: "/")
+        return parts.count > 1 ? parts.dropLast().joined(separator: "/") : nil
+    }
+
+    private func apply(_ rename: Rename) {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        renaming = nil
+        guard !name.isEmpty, !name.contains("/") else { return }
+        // Paths inside a torrent are relative and always use "/".
+        let parent = rename.oldPath.split(separator: "/").dropLast().joined(separator: "/")
+        let newPath = parent.isEmpty ? name : "\(parent)/\(name)"
+        guard newPath != rename.oldPath else { return }
+        let hash = torrent.id
+        model.run { api in
+            try await api.call(rename.isFolder ? "torrents/renameFolder" : "torrents/renameFile",
+                               ["hash": hash, "oldPath": rename.oldPath, "newPath": newPath])
+        }
+    }
 
     var body: some View {
         List(files) { file in
@@ -212,8 +271,29 @@ private struct FilesPane: View {
                     ForEach(FilePriority.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.inline)
+                Divider()
+                Button("Show in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: torrent.savePath).appending(path: file.name)])
+                }
+                .disabled(file.progress <= 0)
+                Button("Rename…") { renaming = Rename(oldPath: file.name, isFolder: false) }
+                if let folder = folder(of: file) {
+                    Button("Rename Folder “\(URL(filePath: folder).lastPathComponent)”…") {
+                        renaming = Rename(oldPath: folder, isFolder: true)
+                    }
+                }
             }
         }
+        .alert(renaming?.isFolder == true ? "Rename Folder" : "Rename File",
+               isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }),
+               presenting: renaming) { rename in
+            TextField("Name", text: $newName)
+            Button("Rename") { apply(rename) }
+            Button("Cancel", role: .cancel) {}
+        } message: { rename in
+            Text(rename.isFolder ? "Every file inside moves with it." : "The file on disk is renamed too.")
+        }
+        .onChange(of: renaming?.oldPath) { newName = renaming.map { URL(filePath: $0.oldPath).lastPathComponent } ?? "" }
         .scrollContentBackground(.hidden)
         .overlay {
             if files.isEmpty {
@@ -237,10 +317,13 @@ private struct FilesPane: View {
 // MARK: Peers
 
 private struct PeersPane: View {
+    @Environment(AppModel.self) private var model
     let torrent: Torrent
     let api: WebAPI
 
     @State private var peers: [Peer] = []
+    @State private var addingPeers = false
+    @State private var banning: Peer?
 
     var body: some View {
         List(peers) { peer in
@@ -268,6 +351,11 @@ private struct PeersPane: View {
                 }
                 .monospacedDigit()
             }
+            .contextMenu {
+                Button("Copy Address") { copy(peer.id) }
+                Divider()
+                Button("Ban Peer…") { banning = peer }
+            }
         }
         .scrollContentBackground(.hidden)
         .overlay {
@@ -275,6 +363,29 @@ private struct PeersPane: View {
                 ContentUnavailableView("No connected peers", systemImage: "person.2",
                                        description: Text("Peers show up here while the torrent is connected to the swarm."))
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            PaneBar {
+                Button("Add Peers…", systemImage: "plus") { addingPeers = true }
+                    .help("Connect to peers by address")
+                    .disabled(torrent.state.isStopped)
+            }
+        }
+        .sheet(isPresented: $addingPeers) {
+            LinesSheet(title: "Add Peers", prompt: "203.0.113.5:6881",
+                       footer: "One address and port per line. IPv6 addresses go in brackets, like [2001:db8::1]:6881.",
+                       action: "Add") { lines in
+                let hash = torrent.id
+                model.run { try await $0.call("torrents/addPeers", ["hashes": hash, "peers": lines.joined(separator: "|")]) }
+            }
+        }
+        .confirmationDialog("Ban \(banning?.id ?? "")?", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }),
+                            presenting: banning) { peer in
+            Button("Ban Peer", role: .destructive) {
+                model.run { try await $0.call("transfer/banPeers", ["peers": peer.id]) }
+            }
+        } message: { _ in
+            Text("Sprout disconnects every peer at this address and refuses it on every torrent. Remove the ban in Settings › Privacy.")
         }
         .polling(id: torrent.id) {
             if let loaded = try? await api.peers(hash: torrent.id) {
@@ -284,43 +395,235 @@ private struct PeersPane: View {
     }
 }
 
+private func copy(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+}
+
 // MARK: Trackers
 
 private struct TrackersPane: View {
+    @Environment(AppModel.self) private var model
     let torrent: Torrent
     let api: WebAPI
 
     @State private var trackers: [Tracker] = []
+    @State private var webSeeds: [String] = []
+    @State private var adding: Adding?
+    @State private var editing: Tracker?
+    @State private var editedURL = ""
+
+    enum Adding: String, Identifiable {
+        case trackers, webSeeds
+        var id: Self { self }
+    }
+
+    private var pseudo: [Tracker] { trackers.filter(\.isPseudoTracker) }
+    private var real: [Tracker] { trackers.filter { !$0.isPseudoTracker } }
 
     var body: some View {
-        List(trackers) { tracker in
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(tracker.displayName).lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 8)
-                    Text(tracker.statusLabel)
-                        .font(.caption)
-                        .foregroundStyle(tracker.isFailing ? AnyShapeStyle(Color.fault) : AnyShapeStyle(.secondary))
+        List {
+            Section {
+                ForEach(real) { tracker in
+                    row(tracker).contextMenu {
+                        Button("Copy URL") { copy(tracker.url) }
+                        Button("Edit URL…") { editing = tracker }
+                        Divider()
+                        Button("Remove Tracker") { remove(tracker) }
+                    }
                 }
-                // The engine reports -1 when a tracker hasn't given counts.
-                if !tracker.isPseudoTracker && tracker.seeds >= 0 && tracker.peers >= 0 {
-                    Text("\(tracker.seeds.formatted()) seeds, \(tracker.peers.formatted()) peers")
-                        .font(.caption)
-                        .monospacedDigit()
+                if real.isEmpty {
+                    Text(torrent.isPrivate ? "No trackers." : "No trackers. Peers come from DHT, peer exchange and local discovery.")
                         .foregroundStyle(.secondary)
-                }
-                if !tracker.message.isEmpty {
-                    Text(tracker.message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
                 }
             }
-            .help(tracker.url)
+            if !pseudo.isEmpty {
+                Section("Discovery") {
+                    ForEach(pseudo) { row($0) }
+                }
+            }
+            if !webSeeds.isEmpty {
+                Section("Web seeds") {
+                    ForEach(webSeeds, id: \.self) { url in
+                        Text(URL(string: url)?.host() ?? url)
+                            .lineLimit(1)
+                            .help(url)
+                            .contextMenu {
+                                Button("Copy URL") { copy(url) }
+                                Divider()
+                                Button("Remove Web Seed") { removeWebSeed(url) }
+                            }
+                    }
+                }
+            }
         }
         .scrollContentBackground(.hidden)
-        .polling(id: torrent.id) {
-            if let loaded = try? await api.trackers(hash: torrent.id) { trackers = loaded }
+        .safeAreaInset(edge: .bottom) {
+            PaneBar {
+                Menu("Add", systemImage: "plus") {
+                    Button("Add Trackers…") { adding = .trackers }
+                    Button("Add Web Seeds…") { adding = .webSeeds }
+                }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Add trackers or web seeds")
+            }
         }
+        .sheet(item: $adding) { kind in
+            switch kind {
+            case .trackers:
+                LinesSheet(title: "Add Trackers", prompt: "udp://tracker.example.org:1337/announce",
+                           footer: "One per line. A blank line starts a new tier, tried only when the ones above fail.",
+                           action: "Add", keepsBlankLines: true) { lines in
+                    let hash = torrent.id
+                    model.run { try await $0.call("torrents/addTrackers", ["hash": hash, "urls": lines.joined(separator: "\n")]) }
+                }
+            case .webSeeds:
+                LinesSheet(title: "Add Web Seeds", prompt: "https://example.org/files/",
+                           footer: "Web servers that host the same files, one per line.", action: "Add") { lines in
+                    let hash = torrent.id
+                    model.run { try await $0.call("torrents/addWebSeeds", ["hash": hash, "urls": lines.joined(separator: "|")]) }
+                }
+            }
+        }
+        .alert("Edit Tracker", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
+               presenting: editing) { tracker in
+            TextField("URL", text: $editedURL)
+            Button("Save") { edit(tracker) }
+            Button("Cancel", role: .cancel) {}
+        }
+        .onChange(of: editing?.url) { editedURL = editing?.url ?? "" }
+        .polling(id: torrent.id) { await load() }
+    }
+
+    private func row(_ tracker: Tracker) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(tracker.displayName).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text(tracker.statusLabel)
+                    .font(.caption)
+                    .foregroundStyle(tracker.isFailing ? AnyShapeStyle(Color.fault) : AnyShapeStyle(.secondary))
+            }
+            // The engine reports -1 when a tracker hasn't given counts.
+            if !tracker.isPseudoTracker && tracker.seeds >= 0 && tracker.peers >= 0 {
+                Text("\(tracker.seeds.formatted()) seeds, \(tracker.peers.formatted()) peers")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if !tracker.message.isEmpty {
+                Text(tracker.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .help(tracker.url)
+    }
+
+    private func load() async {
+        async let loadedTrackers = try? api.trackers(hash: torrent.id)
+        async let loadedSeeds = try? api.webSeeds(hash: torrent.id)
+        if let list = await loadedTrackers { trackers = list }
+        if let list = await loadedSeeds { webSeeds = list }
+    }
+
+    private func change(_ call: @escaping @MainActor (WebAPI) async throws -> Void) {
+        model.run { api in
+            try await call(api)
+            await load()
+        }
+    }
+
+    private func remove(_ tracker: Tracker) {
+        let hash = torrent.id
+        // The engine percent-decodes each URL here, so a "%" in a passkey must be encoded first.
+        let encoded = tracker.url.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? tracker.url
+        change { try await $0.call("torrents/removeTrackers", ["hash": hash, "urls": encoded]) }
+    }
+
+    private func edit(_ tracker: Tracker) {
+        let url = editedURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        editing = nil
+        guard !url.isEmpty, url != tracker.url else { return }
+        let hash = torrent.id
+        change { try await $0.call("torrents/editTracker", ["hash": hash, "url": tracker.url, "newUrl": url]) }
+    }
+
+    private func removeWebSeed(_ url: String) {
+        let hash = torrent.id
+        change { try await $0.call("torrents/removeWebSeeds", ["hash": hash, "urls": url]) }
+    }
+}
+
+// MARK: Shared
+
+/// The small action bar at the foot of an inspector list, like Finder's and Mail's.
+private struct PaneBar<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 4) {
+            content
+            Spacer()
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// A sheet that takes a list, one entry per line.
+struct LinesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let prompt: String
+    let footer: String
+    let action: String
+    /// Tracker lists use blank lines to separate tiers.
+    var keepsBlankLines = false
+    let submit: ([String]) -> Void
+
+    @State private var text = ""
+
+    private var lines: [String] {
+        var list = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        if !keepsBlankLines { list.removeAll(where: \.isEmpty) }
+        while list.first == "" { list.removeFirst() }
+        while list.last == "" { list.removeLast() }
+        return list
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Form {
+                Section {
+                    TextField(title, text: $text, prompt: Text(prompt), axis: .vertical)
+                        .lineLimit(4...10)
+                        .labelsHidden()
+                } footer: {
+                    Text(footer)
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(action) {
+                    submit(lines)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(lines.isEmpty)
+            }
+            .padding([.horizontal, .bottom], 20)
+        }
+        .frame(width: 440)
+        .navigationTitle(title)
     }
 }

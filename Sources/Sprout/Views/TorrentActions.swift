@@ -60,6 +60,20 @@ struct TorrentActions: View {
         ))
         .help("Fetch pieces from start to end, so media can be previewed while it downloads")
         .disabled(none || torrents.allSatisfy { $0.progress >= 1 })
+        Toggle("Download First and Last Pieces First", isOn: Binding(
+            get: { !none && torrents.allSatisfy(\.firstLastPiecesFirst) },
+            set: { _ in model.run("toggleFirstLastPiecePrio", on: hashes) }
+        ))
+        .help("Fetch each file's ends early, so video players can open a file before it's complete")
+        .disabled(none || torrents.allSatisfy { $0.progress >= 1 })
+        Toggle("Super Seeding", isOn: Binding(
+            get: { !none && torrents.allSatisfy(\.isSuperSeeding) },
+            set: { model.setFlag("setSuperSeeding", $0, on: hashes) }
+        ))
+        .help("Hand out each piece to one peer at a time, to spread a new torrent faster")
+        .disabled(none || !torrents.allSatisfy { $0.progress >= 1 })
+        Button("Speed and Seeding Limits…") { model.pendingLimits = hashes }
+            .disabled(none)
         if model.server.queueingEnabled {
             Menu("Queue") {
                 Button("Move to Top") { model.run("topPrio", on: hashes) }
@@ -77,15 +91,25 @@ struct TorrentActions: View {
             .disabled(single == nil)
         Button("Move Files…") { model.pendingMove = hashes }
             .disabled(none)
+        Toggle("Use Category Folder", isOn: Binding(
+            get: { !none && torrents.allSatisfy(\.usesCategoryFolder) },
+            set: { model.setFlag("setAutoManagement", $0, on: hashes, key: "enable") }
+        ))
+        .help("Save in the category's folder, and move when the category changes")
+        .disabled(none)
         Button("Rename…") {
             if let single { model.prompt = TextPrompt(kind: .rename(single.id), initial: single.name) }
         }
         .disabled(single == nil)
+        Button(torrents.count > 1 ? "Copy Magnet Links" : "Copy Magnet Link") { model.copyMagnetLinks(hashes) }
+            .disabled(!torrents.contains { !$0.magnetURI.isEmpty })
         Button("Copy Info Hash") {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(single?.id ?? "", forType: .string)
+            NSPasteboard.general.setString(single?.displayHash ?? "", forType: .string)
         }
         .disabled(single == nil)
+        Button("Export .torrent File…") { if let single { model.exportTorrentFile(single) } }
+            .disabled(single?.hasMetadata != true)
 
         Divider()
 

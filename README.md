@@ -18,6 +18,15 @@ Sprout is not an official qBittorrent product.
   default folder and the listening port.
 - A notification when a download finishes, a Dock badge, and an optional hold on idle sleep
   while anything downloads.
+- Adding a torrent you already have merges the new source's trackers and web seeds into it
+  (private torrents excepted) and says so, instead of failing.
+- Edit trackers and web seeds, add or ban peers, rename files and folders, set per-torrent
+  speed and seeding limits, copy magnet links, export .torrent files, and give categories
+  their own folders.
+- Create torrents from a file or folder (⇧⌘N), and read the engine's log (⇧⌘L).
+- Settings for unfinished-download folders, watched folders, skipped file names, commands to
+  run on add or finish, a speed schedule, network interface binding, encryption, proxy, DHT/PeX/LSD
+  and IP filter lists.
 
 ## Requirements
 

@@ -20,7 +20,6 @@ struct MainView: View {
         .navigationTitle(model.sidebar.title)
         .navigationSubtitle(countSummary)
         .containerBackground(Color.ground, for: .window)
-        .tint(.lit)
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Filter by name")
         .toolbar { toolbar }
         .dropDestination(for: URL.self) { urls, _ in
@@ -28,6 +27,8 @@ struct MainView: View {
             return true
         }
         .modifier(MainDialogs())
+        // After the dialogs, so sheets get ink controls too, not the system accent.
+        .tint(.lit)
     }
 
     // Speeds live in the pulse band; the subtitle only counts, so nothing is said twice.
@@ -97,13 +98,22 @@ struct SidebarView: View {
             }
             if !model.categories.isEmpty {
                 Section("Categories") {
-                    ForEach(model.categories, id: \.self) { row(.category($0)) }
+                    ForEach(model.categories, id: \.self) { name in
+                        row(.category(name)).contextMenu {
+                            Button("Choose Folder…") { model.editingCategory = name }
+                            Button("Remove Category…") { model.pendingCategoryRemoval = name }
+                        }
+                    }
                     row(.category(""))
                 }
             }
             if !model.tags.isEmpty {
                 Section("Tags") {
-                    ForEach(model.tags, id: \.self) { row(.tag($0)) }
+                    ForEach(model.tags, id: \.self) { name in
+                        row(.tag(name)).contextMenu {
+                            Button("Remove Tag") { model.removeTag(name) }
+                        }
+                    }
                 }
             }
         }
@@ -128,6 +138,17 @@ private extension Binding where Value == SidebarItem? {
     }
 }
 
+/// Sheet items: SwiftUI wants Identifiable values.
+private struct HashSet: Identifiable {
+    let hashes: Set<String>
+    var id: Set<String> { hashes }
+}
+
+private struct CategoryName: Identifiable {
+    let name: String
+    var id: String { name }
+}
+
 /// The main window's sheet, dialogs, prompts and folder picker.
 private struct MainDialogs: ViewModifier {
     @Environment(AppModel.self) private var model
@@ -138,6 +159,13 @@ private struct MainDialogs: ViewModifier {
         @Bindable var model = model
         content
             .sheet(isPresented: $model.showsAddSheet) { AddTorrentSheet() }
+            .sheet(isPresented: $model.showsCreateSheet) { CreateTorrentSheet() }
+            .sheet(item: Binding(get: { model.pendingLimits.map(HashSet.init) }, set: { model.pendingLimits = $0?.hashes })) {
+                LimitsSheet(hashes: $0.hashes)
+            }
+            .sheet(item: Binding(get: { model.editingCategory.map(CategoryName.init) }, set: { model.editingCategory = $0?.name })) {
+                CategorySheet(category: $0.name)
+            }
             .confirmationDialog(
                 removalTitle,
                 isPresented: Binding(get: { model.pendingRemoval != nil }, set: { if !$0 { model.pendingRemoval = nil } }),
@@ -160,12 +188,29 @@ private struct MainDialogs: ViewModifier {
             }
             .onChange(of: model.prompt?.id) { promptText = model.prompt?.initial ?? "" }
             .background { moveFolderPicker }
+            .confirmationDialog(
+                "Remove the category “\(model.pendingCategoryRemoval ?? "")”?",
+                isPresented: Binding(get: { model.pendingCategoryRemoval != nil }, set: { if !$0 { model.pendingCategoryRemoval = nil } }),
+                presenting: model.pendingCategoryRemoval
+            ) { name in
+                Button("Remove Category", role: .destructive) { model.removeCategory(name) }
+            } message: { name in
+                Text(categoryRemovalMessage(name))
+            }
             .alert(
                 "Sprout couldn't complete that",
                 isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
             ) {} message: {
                 Text(model.errorMessage ?? "")
             }
+    }
+
+    private func categoryRemovalMessage(_ name: String) -> String {
+        let count = model.torrents.values.count { $0.category == name || $0.category.hasPrefix(name + "/") }
+        let subcategories = model.categories.filter { $0.hasPrefix(name + "/") }
+        var text = count == 0 ? "No torrents use it." : "Its \(count == 1 ? "torrent loses" : "\(count) torrents lose") the category. Any that use the category folder move to the default folder."
+        if !subcategories.isEmpty { text += " Its subcategories are removed too: \(subcategories.joined(separator: ", "))." }
+        return text
     }
 
     private var removalTitle: String {

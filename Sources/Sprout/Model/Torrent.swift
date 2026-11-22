@@ -22,6 +22,20 @@ struct Torrent: Identifiable, Hashable, Sendable {
     var queuePosition: Int64
     var isSequential: Bool
     var isForced: Bool
+    var magnetURI: String
+    /// Bytes per second; 0 means no limit of its own.
+    var downloadLimit: Int64
+    var uploadLimit: Int64
+    var shareLimits: ShareLimits
+    var isSuperSeeding: Bool
+    var usesCategoryFolder: Bool
+    var firstLastPiecesFirst: Bool
+    var isPrivate: Bool
+    var hasMetadata: Bool
+    /// The real info hashes. `id` is the engine's torrent ID, which for v2 and hybrid torrents
+    /// is a truncated SHA-256, not either info hash.
+    var infoHashV1: String
+    var infoHashV2: String
 
     init(hash: String, fields: [String: JSON]) {
         id = hash
@@ -43,7 +57,29 @@ struct Torrent: Identifiable, Hashable, Sendable {
         queuePosition = fields["priority"]?.int ?? -1
         isSequential = fields["seq_dl"]?.bool ?? false
         isForced = fields["force_start"]?.bool ?? false
+        magnetURI = fields.string("magnet_uri")
+        downloadLimit = max(0, fields.int("dl_limit"))
+        uploadLimit = max(0, fields.int("up_limit"))
+        shareLimits = ShareLimits(fields: fields)
+        isSuperSeeding = fields["super_seeding"]?.bool ?? false
+        usesCategoryFolder = fields["auto_tmm"]?.bool ?? false
+        firstLastPiecesFirst = fields["f_l_piece_prio"]?.bool ?? false
+        isPrivate = fields["private"]?.bool ?? false
+        hasMetadata = fields["has_metadata"]?.bool ?? true
+        // The engine sends "" or "-" style values when a version is absent.
+        infoHashV1 = Self.hash(fields.string("infohash_v1"), length: 40)
+        infoHashV2 = Self.hash(fields.string("infohash_v2"), length: 64)
     }
+
+    private static func hash(_ value: String, length: Int) -> String {
+        value.count == length && value.allSatisfy(\.isHexDigit) ? value.lowercased() : ""
+    }
+
+    /// Every hash a duplicate could be recognised by.
+    var knownHashes: [String] { [id, infoHashV1, infoHashV2].filter { !$0.isEmpty } }
+
+    /// The hash people share and sites list: v1 when there is one.
+    var displayHash: String { infoHashV1.isEmpty ? (infoHashV2.isEmpty ? id : infoHashV2) : infoHashV1 }
 
     var isTransferring: Bool { downloadSpeed > 0 || uploadSpeed > 0 }
     var hasKnownETA: Bool { eta > 0 && eta < 8_640_000 && progress < 1 }
@@ -284,6 +320,58 @@ struct Peer: Identifiable, Sendable {
         downloadSpeed = fields.int("dl_speed")
         uploadSpeed = fields.int("up_speed")
         countryCode = fields.string("country_code").uppercased()
+    }
+}
+
+/// A torrent's own seeding limits. The engine uses -2 for "follow Settings" and -1 for "no limit".
+struct ShareLimits: Hashable, Sendable {
+    static let followSettings = -2.0
+    static let none = -1.0
+
+    var ratio: Double
+    /// Minutes.
+    var seedingTime: Double
+    /// Minutes without any upload.
+    var inactiveTime: Double
+    /// -1 follows Settings; 0 stop, 1 remove, 3 remove with files, 2 super seeding.
+    var action: Int
+    /// "Default", "MatchAny" or "MatchAll": whether any limit or all of them stop seeding.
+    var mode = "Default"
+
+    /// The engine reads and writes the action by its enum name.
+    static let actionNames = [-1: "Default", 0: "Stop", 1: "Remove", 3: "RemoveWithContent", 2: "EnableSuperSeeding"]
+
+    init(ratio: Double = followSettings, seedingTime: Double = followSettings, inactiveTime: Double = followSettings, action: Int = -1) {
+        self.ratio = ratio
+        self.seedingTime = seedingTime
+        self.inactiveTime = inactiveTime
+        self.action = action
+    }
+
+    init(fields: [String: JSON]) {
+        ratio = fields["ratio_limit"]?.double ?? Self.followSettings
+        seedingTime = fields["seeding_time_limit"]?.double ?? Self.followSettings
+        inactiveTime = fields["inactive_seeding_time_limit"]?.double ?? Self.followSettings
+        let actionName = fields.string("share_limit_action")
+        action = Self.actionNames.first { $0.value == actionName }?.key ?? -1
+        mode = fields["share_limits_mode"]?.string ?? "Default"
+    }
+
+    var followsSettings: Bool {
+        ratio == Self.followSettings && seedingTime == Self.followSettings && inactiveTime == Self.followSettings
+    }
+
+    var isUnlimited: Bool { ratio == Self.none && seedingTime == Self.none && inactiveTime == Self.none }
+
+    /// e.g. "Ratio 2.00 or 24 h seeding", "From Settings", "None".
+    var summary: String {
+        if followsSettings { return "From Settings" }
+        var parts: [String] = []
+        if ratio >= 0 { parts.append("ratio \(ratio.formatted(.number.precision(.fractionLength(2))))") }
+        if seedingTime >= 0 { parts.append("\(Format.duration(seconds: Int64(seedingTime) * 60)) seeding") }
+        if inactiveTime >= 0 { parts.append("\(Format.duration(seconds: Int64(inactiveTime) * 60)) idle") }
+        guard let first = parts.first else { return "None" }
+        return ([first.prefix(1).uppercased() + first.dropFirst()] + parts.dropFirst()).joined(separator: " or ")
     }
 }
 

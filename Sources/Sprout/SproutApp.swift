@@ -17,6 +17,13 @@ struct SproutApp: App {
         Settings {
             SettingsView().environment(appDelegate.model)
         }
+
+        Window("Engine Log", id: "log") {
+            LogView()
+                .environment(appDelegate.model)
+                .frame(minWidth: 560, minHeight: 300)
+        }
+        .defaultSize(width: 820, height: 520)
     }
 }
 
@@ -68,11 +75,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 struct SproutCommands: Commands {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Add Torrent…") { model.showsAddSheet = true }
                 .keyboardShortcut("o")
+            Button("Create Torrent…") { model.showsCreateSheet = true }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+        }
+        CommandGroup(before: .windowList) {
+            Button("Engine Log") { openWindow(id: "log") }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+            Divider()
         }
         CommandMenu("Torrent") {
             TorrentActions(model: model, hashes: model.selection, showsShortcuts: true)

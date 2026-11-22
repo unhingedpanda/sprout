@@ -32,6 +32,7 @@ struct TorrentList: View {
             .overlay {
                 if rows.isEmpty { emptyState }
             }
+            .overlay(alignment: .bottom) { NoticeBanner() }
         }
         .background(Color.ground)
     }

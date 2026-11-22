@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import OSLog
 import UserNotifications
 import Observation
@@ -10,7 +11,18 @@ final class AppModel {
     private(set) var torrents: [String: Torrent] = [:]
     private(set) var server = ServerState()
     private(set) var categories: [String] = []
+    /// Each category's own folder; empty means the default folder.
+    private(set) var categoryFolders: [String: String] = [:]
     private(set) var tags: [String] = []
+    /// Whether adding a torrent that's already in the list merges its trackers (engine `merge_trackers`).
+    var mergesTrackers = true
+    /// A short message shown over the list, e.g. after adding a torrent that was already there.
+    var notice: Notice?
+    /// Torrents whose speed and seeding limits are being edited.
+    var pendingLimits: Set<String>?
+    /// The category whose folder is being edited.
+    var editingCategory: String?
+    var showsCreateSheet = false
     /// One sample per sync (about a second), newest last; the pulse band draws the last minute.
     private(set) var speedHistory: [SpeedSample] = []
     private var rawTorrents: [String: [String: JSON]] = [:]
@@ -54,6 +66,7 @@ final class AppModel {
         guard let api = engine.api else { return }
         syncTask?.cancel()
         syncTask = Task { await syncLoop(api) }
+        await applyFirstRunDefaults(api)
         if !pendingOpens.isEmpty {
             let urls = pendingOpens
             pendingOpens = []
@@ -64,6 +77,18 @@ final class AppModel {
     func shutdown() async {
         syncTask?.cancel()
         await engine.stop()
+    }
+
+    /// The engine ships with tracker merging off, so adding a torrent twice just fails.
+    /// Sprout turns it on once; after that the Settings switch decides.
+    private func applyFirstRunDefaults(_ api: WebAPI) async {
+        let key = "AppliedEngineDefaults"
+        if !UserDefaults.standard.bool(forKey: key) {
+            if (try? await api.setPreferences(["merge_trackers": .bool(true)])) != nil {
+                UserDefaults.standard.set(true, forKey: key)
+            }
+        }
+        if let prefs = try? await api.preferences() { mergesTrackers = prefs["merge_trackers"]?.bool ?? false }
     }
 
     private func syncLoop(_ api: WebAPI) async {
@@ -92,9 +117,16 @@ final class AppModel {
         for removed in update["torrents_removed"]?.array ?? [] {
             if let hash = removed.string { rawTorrents[hash] = nil }
         }
+        if update["full_update"]?.bool == true { categoryFolders = [:] }
         var names = Set(categories), labels = Set(tags)
-        names.formUnion(update["categories"]?.object?.keys.map { $0 } ?? [])
-        names.subtract((update["categories_removed"]?.array ?? []).compactMap(\.string))
+        for (name, info) in update["categories"]?.object ?? [:] {
+            names.insert(name)
+            if let path = info["savePath"]?.string { categoryFolders[name] = path }
+        }
+        for removed in (update["categories_removed"]?.array ?? []).compactMap(\.string) {
+            names.remove(removed)
+            categoryFolders[removed] = nil
+        }
         labels.formUnion((update["tags"]?.array ?? []).compactMap(\.string))
         labels.subtract((update["tags_removed"]?.array ?? []).compactMap(\.string))
         categories = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
@@ -184,11 +216,139 @@ final class AppModel {
     }
 
     func add(links: [String], options: AddOptions = AddOptions()) {
-        perform { try await $0.add(urls: links, options: options) }
+        // Links to .torrent files on the web can't be checked before the engine fetches them.
+        let unique = Array(Set(links))
+        let known = unique.map { Magnet.infoHash($0).flatMap(existingTorrentID) }
+        let allKnown = !known.contains(nil)
+        perform { [self] api in
+            try await Self.adding(allKnown: allKnown) { try await api.add(urls: unique, options: options) }
+            reportDuplicates(Set(known.compactMap { $0 }))
+        }
     }
 
     func add(files: [URL], options: AddOptions = AddOptions()) {
-        perform { try await $0.add(torrentFiles: files, options: options) }
+        perform { [self] api in
+            let parsed = (try? await api.parseMetadata(files)) ?? []
+            let known = parsed.map { entry in
+                [entry["hash"]?.string, entry["infohash_v1"]?.string, entry["infohash_v2"]?.string]
+                    .compactMap { $0 }.lazy.compactMap(self.existingTorrentID).first
+            }
+            // Two copies of one file count once; every file must be recognised to treat a refusal as a duplicate.
+            let allKnown = parsed.count == files.count && !known.contains(nil)
+            try await Self.adding(allKnown: allKnown) { try await api.add(torrentFiles: files, options: options) }
+            reportDuplicates(Set(known.compactMap { $0 }))
+        }
+    }
+
+    /// The torrent in the list that has this hash as its ID or as its v1 or v2 info hash.
+    private func existingTorrentID(_ hash: String) -> String? {
+        let hash = hash.lowercased()
+        if torrents[hash] != nil { return hash }
+        return torrents.values.first { $0.knownHashes.contains(hash) }?.id
+    }
+
+    /// torrents/add answers 409 when nothing in the request was added. When every item was
+    /// already in the list that is expected, and the duplicate notice explains it.
+    private static func adding(allKnown: Bool, _ add: () async throws -> Void) async throws {
+        do {
+            try await add()
+        } catch let error as WebAPI.HTTPError where error.status == 409 {
+            if !allKnown { throw AddError() }
+        }
+    }
+
+    private struct AddError: LocalizedError {
+        var errorDescription: String? { "The engine didn't add it. Check that the link or file is a valid torrent." }
+    }
+
+    /// Selects torrents that were added again and says what the engine did with them.
+    private func reportDuplicates(_ hashes: Set<String>) {
+        let existing = hashes.compactMap { torrents[$0] }
+        guard let first = existing.first else { return }
+        sidebar = .state(.all)
+        selection = Set(existing.map(\.id))
+        let name = existing.count == 1 ? "“\(first.name)” is" : "\(existing.count) of these torrents are"
+        let result: String
+        if !mergesTrackers {
+            result = "Nothing was added. Turn on tracker merging in Settings › Downloads to combine their trackers."
+        } else if existing.allSatisfy(\.isPrivate) {
+            result = "Private torrents keep their own trackers, so nothing was merged."
+        } else {
+            result = existing.count == 1
+                ? "Its trackers and web seeds were merged into the one you have."
+                : "Their trackers and web seeds were merged into the ones you have."
+        }
+        notice = Notice(title: "\(name) already in your list", detail: result)
+    }
+
+    func copyMagnetLinks(_ hashes: Set<String>) {
+        let links = hashes.compactMap { torrents[$0]?.magnetURI }.filter { !$0.isEmpty }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
+    }
+
+    /// Saves a torrent's .torrent file where the user picks. The save panel asks before replacing a file.
+    func exportTorrentFile(_ torrent: Torrent) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(torrent.name).torrent"
+        panel.allowedContentTypes = [.init(filenameExtension: "torrent") ?? .data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        perform { api in
+            let data = try await api.fetch("torrents/export", ["hash": torrent.id])
+            try data.write(to: url)
+        }
+    }
+
+    func setFlag(_ action: String, _ on: Bool, on hashes: Set<String>, key: String = "value") {
+        perform { try await $0.torrents(action, hashes, [key: String(on)]) }
+    }
+
+    /// Sets only the limits passed; nil leaves that limit as each torrent has it.
+    func setLimits(on hashes: Set<String>, download: Int64?, upload: Int64?, share: ShareLimits?) {
+        pendingLimits = nil
+        perform { api in
+            if let download { try await api.torrents("setDownloadLimit", hashes, ["limit": String(download)]) }
+            if let upload { try await api.torrents("setUploadLimit", hashes, ["limit": String(upload)]) }
+            if let share {
+                try await api.torrents("setShareLimits", hashes, [
+                    "ratioLimit": String(share.ratio),
+                    "seedingTimeLimit": String(Int(share.seedingTime)),
+                    "inactiveSeedingTimeLimit": String(Int(share.inactiveTime)),
+                    "shareLimitAction": ShareLimits.actionNames[share.action] ?? "Default",
+                    "shareLimitsMode": share.mode,
+                ])
+            }
+        }
+    }
+
+    /// The engine turns off "Use Category Folder" for a category's torrents when its folder changes,
+    /// so nothing moves. Sprout turns it back on for the torrents that had it, so they follow the folder.
+    func setCategoryFolder(_ category: String, to folder: String) {
+        editingCategory = nil
+        let following = Set(torrents.values.filter { $0.category == category && $0.usesCategoryFolder }.map(\.id))
+        perform { api in
+            try await api.call("torrents/editCategory", ["category": category, "savePath": folder])
+            if !following.isEmpty { try await api.torrents("setAutoManagement", following, ["enable": "true"]) }
+        }
+    }
+
+    /// Asked for from the sidebar; the main window confirms before anything is removed.
+    var pendingCategoryRemoval: String?
+
+    func removeCategory(_ name: String) {
+        pendingCategoryRemoval = nil
+        if sidebar == .category(name) { sidebar = .state(.all) }
+        perform { try await $0.call("torrents/removeCategories", ["categories": name]) }
+    }
+
+    func removeTag(_ name: String) {
+        if sidebar == .tag(name) { sidebar = .state(.all) }
+        perform { try await $0.call("torrents/deleteTags", ["tags": name]) }
+    }
+
+    /// Runs an engine call from a view and reports a failure the same way as menu actions.
+    func run(_ action: @escaping @MainActor (WebAPI) async throws -> Void) {
+        perform(action)
     }
 
     func start(_ hashes: Set<String>) {
@@ -269,7 +429,7 @@ final class AppModel {
     var canStart: Bool { selectedTorrents.contains { $0.state.isStopped } }
     var canStop: Bool { selectedTorrents.contains { !$0.state.isStopped } }
 
-    private func perform(_ action: @escaping @Sendable (WebAPI) async throws -> Void) {
+    private func perform(_ action: @escaping @MainActor (WebAPI) async throws -> Void) {
         guard let api = engine.api else { return }
         Task {
             do {
@@ -278,6 +438,50 @@ final class AppModel {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+/// A passing message, not an error: it explains what just happened and goes away by itself.
+struct Notice: Identifiable, Equatable {
+    let id = UUID()
+    let title: String
+    let detail: String
+}
+
+/// Reads the info hash out of a magnet link, as the lowercase hex the engine uses for IDs.
+enum Magnet {
+    static func infoHash(_ link: String) -> String? {
+        guard let items = URLComponents(string: link)?.queryItems, link.lowercased().hasPrefix("magnet:") else { return nil }
+        for item in items where item.name == "xt" {
+            guard let value = item.value?.lowercased() else { continue }
+            // v2 links: "urn:btmh:1220" then the 64-hex SHA-256 info hash.
+            if value.hasPrefix("urn:btmh:1220") {
+                let hash = String(value.dropFirst("urn:btmh:1220".count))
+                if hash.count == 64, hash.allSatisfy(\.isHexDigit) { return hash }
+                continue
+            }
+            guard value.hasPrefix("urn:btih:") else { continue }
+            let hash = String(value.dropFirst("urn:btih:".count))
+            if hash.count == 40, hash.allSatisfy(\.isHexDigit) { return hash }
+            if hash.count == 32, let hex = base32ToHex(hash) { return hex }
+        }
+        return nil
+    }
+
+    private static func base32ToHex(_ text: String) -> String? {
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
+        var bits = 0, value = 0
+        var bytes: [UInt8] = []
+        for char in text {
+            guard let index = alphabet.firstIndex(of: char) else { return nil }
+            value = (value << 5) | index
+            bits += 5
+            if bits >= 8 {
+                bytes.append(UInt8((value >> (bits - 8)) & 0xFF))
+                bits -= 8
+            }
+        }
+        return bytes.count == 20 ? bytes.map { String(format: "%02x", $0) }.joined() : nil
     }
 }
 

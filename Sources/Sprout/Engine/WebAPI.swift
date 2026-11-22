@@ -9,7 +9,7 @@ struct WebAPI: Sendable {
         let status: Int
         let body: String
         var errorDescription: String? {
-            body.isEmpty ? "The engine answered with HTTP \(status)." : body
+            return body.isEmpty ? "The engine answered with HTTP \(status)." : body
         }
     }
 
@@ -122,6 +122,37 @@ struct WebAPI: Sendable {
         try await post("transfer/toggleSpeedLimitsMode", [:])
     }
 
+    /// Any other Web API action, e.g. `call("torrents/addTrackers", ["hash": h, "urls": u])`.
+    @discardableResult
+    func call(_ path: String, _ form: [String: String] = [:]) async throws -> Data {
+        try await post(path, form)
+    }
+
+    func fetch(_ path: String, _ query: [String: String] = [:]) async throws -> Data {
+        try await get(path, query)
+    }
+
+    /// Reads .torrent files without adding them, for their info hashes.
+    func parseMetadata(_ files: [URL]) async throws -> [JSON] {
+        var parts: [Multipart.File] = []
+        for url in files {
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            parts.append(.init(field: url.lastPathComponent, filename: url.lastPathComponent, data: try Data(contentsOf: url)))
+        }
+        return try JSON.decode(try await postMultipart("torrents/parseMetadata", fields: [:], files: parts)).array ?? []
+    }
+
+    func webSeeds(hash: String) async throws -> [String] {
+        let json = try JSON.decode(try await get("torrents/webseeds", ["hash": hash]))
+        return (json.array ?? []).compactMap { $0["url"]?.string }
+    }
+
+    /// The engine splits creator URL lists on "|" and percent-decodes each entry.
+    static func urlList(_ urls: [String]) -> String {
+        urls.map { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? $0 }.joined(separator: "|")
+    }
+
     // MARK: Preferences
 
     func preferences() async throws -> [String: JSON] {
@@ -162,13 +193,14 @@ struct WebAPI: Sendable {
         return try await send(request)
     }
 
-    private func postMultipart(_ path: String, fields: [String: String], files: [Multipart.File]) async throws {
+    @discardableResult
+    private func postMultipart(_ path: String, fields: [String: String], files: [Multipart.File]) async throws -> Data {
         var request = request(path)
         request.httpMethod = "POST"
         let body = Multipart(fields: fields, files: files)
         request.setValue("multipart/form-data; boundary=\(body.boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body.data
-        try await send(request)
+        return try await send(request)
     }
 
     @discardableResult

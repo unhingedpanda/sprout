@@ -4,6 +4,25 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        content
+            .onAppear(perform: bringWindowsOnScreen)
+    }
+
+    /// A window saved on a display that's gone, or off every screen, comes back to the centre.
+    private func bringWindowsOnScreen() {
+        DispatchQueue.main.async {
+            for window in NSApp.windows where window.canBecomeMain && !window.isMiniaturized {
+                let onScreen = NSScreen.screens.contains { screen in
+                    let overlap = screen.visibleFrame.intersection(window.frame)
+                    return overlap.width >= 200 && overlap.height >= 120
+                }
+                if !onScreen && window.frame.width > 0 { window.center() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch model.engine.status {
         case .running:
             MainView()

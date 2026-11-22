@@ -13,6 +13,9 @@ struct AddTorrentSheet: View {
     @State private var category = ""
     @State private var choosingFiles = false
     @State private var choosingFolder = false
+    @State private var freeSpace: Int64?
+    /// The engine's default folder. A torrent added without a folder can follow its category's folder.
+    @State private var defaultPath = ""
 
     private static let torrentType = UTType(filenameExtension: "torrent") ?? .data
 
@@ -50,9 +53,16 @@ struct AddTorrentSheet: View {
                 Section {
                     LabeledContent("Save to") {
                         HStack {
-                            Text(savePath.isEmpty ? "Default folder" : URL(filePath: savePath).lastPathComponent)
-                                .foregroundStyle(.secondary)
-                                .help(savePath)
+                            VStack(alignment: .trailing, spacing: 1) {
+                                Text(savePath.isEmpty ? "Default folder" : URL(filePath: savePath).lastPathComponent)
+                                    .help(savePath)
+                                if let freeSpace {
+                                    Text("\(Format.bytes(freeSpace)) free")
+                                        .font(.caption)
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Button("Change…") { choosingFolder = true }
                                 .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
                                     if case .success(let url) = result { savePath = url.path }
@@ -91,13 +101,22 @@ struct AddTorrentSheet: View {
         .frame(width: 480)
         .navigationTitle("Add Torrent")
         .task {
-            if savePath.isEmpty, let path = try? await model.engine.api?.defaultSavePath() { savePath = path }
+            if savePath.isEmpty, let path = try? await model.engine.api?.defaultSavePath() {
+                defaultPath = path
+                savePath = path
+            }
+        }
+        .task(id: savePath) {
+            guard !savePath.isEmpty, let api = model.engine.api,
+                  let data = try? await api.fetch("app/getFreeSpaceAtPath", ["path": savePath]) else { freeSpace = nil; return }
+            freeSpace = Int64(String(decoding: data, as: UTF8.self))
         }
     }
 
     private func add() {
         let options = AddOptions(
-            savePath: savePath.isEmpty ? nil : savePath,
+            // Sending a folder turns off "Use Category Folder"; send one only when the user chose it.
+            savePath: savePath.isEmpty || savePath == defaultPath ? nil : savePath,
             category: category,
             startNow: startNow,
             chooseFilesFirst: chooseFilesFirst
