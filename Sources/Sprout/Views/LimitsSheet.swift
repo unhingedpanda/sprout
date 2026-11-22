@@ -34,7 +34,12 @@ struct LimitsSheet: View {
                 } header: {
                     Text("Speed")
                 } footer: {
-                    Text("0 means no limit of its own. The limits in Settings still apply.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        if differs {
+                            Text("These torrents have different limits. The form shows \(firstName)’s. Only what you change is applied to all of them.")
+                        }
+                        Text("0 means no limit of its own. The limits in Settings still apply.")
+                    }
                 }
 
                 Section {
@@ -90,6 +95,10 @@ struct LimitsSheet: View {
     private func load() {
         let torrents = hashes.compactMap { model.torrents[$0] }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         guard let torrent = torrents.first else { return }
+        firstName = torrent.name
+        differs = torrents.contains {
+            $0.downloadLimit != torrent.downloadLimit || $0.uploadLimit != torrent.uploadLimit || $0.shareLimits != torrent.shareLimits
+        }
         download = Double(torrent.downloadLimit) / 1024
         upload = Double(torrent.uploadLimit) / 1024
         let limits = torrent.shareLimits
@@ -106,6 +115,8 @@ struct LimitsSheet: View {
     }
 
     @State private var mode = "Default"
+    @State private var differs = false
+    @State private var firstName = ""
 
     /// The seeding limits as the form now reads.
     private var share: ShareLimits {

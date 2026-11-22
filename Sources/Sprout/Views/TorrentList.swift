@@ -13,8 +13,10 @@ struct TorrentList: View {
                       current: SpeedSample(down: model.server.downloadSpeed, up: model.server.uploadSpeed))
 
             List(rows, selection: $model.selection) { torrent in
-                SeedBed(torrent: torrent)
+                SeedBed(torrent: torrent, selected: model.selection.contains(torrent.id))
                     .listRowSeparator(.hidden)
+                    // Fixed insets: rows put back after a search otherwise came back 8 pt taller.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             }
             .listStyle(.inset)
             // The List's own row height; a frame on the row alone isn't honoured for rows
@@ -70,11 +72,13 @@ struct TorrentList: View {
 struct SeedBed: View {
     static let height: CGFloat = 70
     let torrent: Torrent
-
-    @Environment(\.backgroundProminence) private var prominence
+    /// A selected row drops the orange (unreadable on the grey graphite highlight) and draws its
+    /// dots in the text's own style, so they turn white on a focused highlight and stay dark on an
+    /// unfocused one, exactly like the name. `backgroundProminence` never reports the change here.
+    var selected = false
 
     var body: some View {
-        let onSelection = prominence == .increased
+        let onSelection = selected
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 7) {
                 Text(torrent.name)
@@ -82,14 +86,17 @@ struct SeedBed: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(torrent.name)
-                PieceTray(torrent: torrent)
-                statusLine
+                PieceTray(torrent: torrent, selected: onSelection)
+                    .inkOnSelection(onSelection, torrent.state.isStopped ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                statusLine(onSelection)
                     .font(.callout)
                     .foregroundStyle(onSelection ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             }
             DotText(text: Format.percentDigits(torrent.progress), dot: 3.5,
-                    color: onSelection ? .white : torrent.figureColor,
+                    color: onSelection && !torrent.state.isError ? .white : torrent.figureColor,
                     showsUnlit: !onSelection)
+                .inkOnSelection(onSelection && !torrent.state.isError,
+                                torrent.state.isStopped ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .frame(minWidth: 90, alignment: .trailing)
         }
         .padding(.horizontal, 4)
@@ -99,17 +106,17 @@ struct SeedBed: View {
         .accessibilityLabel("\(torrent.name), \(torrent.state.label), \(Format.percent(torrent.progress))")
     }
 
-    private var statusLine: some View {
+    private func statusLine(_ onSelection: Bool) -> some View {
         HStack(spacing: 14) {
             Label(torrent.state.label, systemImage: torrent.state.symbol)
                 .foregroundStyle(torrent.state.isError ? Color.fault : Color.secondary)
             if torrent.downloadSpeed >= Format.movingThreshold && torrent.progress < 1 {
                 Label(Format.speed(torrent.downloadSpeed), systemImage: "arrow.down")
-                    .foregroundStyle(Color.signal)
+                    .foregroundStyle(onSelection ? Color.primary : Color.signal)
             }
             if torrent.uploadSpeed >= Format.movingThreshold {
                 Label(Format.speed(torrent.uploadSpeed), systemImage: "arrow.up")
-                    .foregroundStyle(Color.signal)
+                    .foregroundStyle(onSelection ? Color.primary : Color.signal)
             }
             if torrent.hasKnownETA {
                 Text("\(Format.eta(torrent)) left")
@@ -144,5 +151,17 @@ struct StatusLabel: View {
         Label(state.label, systemImage: state.symbol)
             .foregroundStyle(state.isError ? Color.fault : Color.primary)
             .lineLimit(1)
+    }
+}
+
+private extension View {
+    /// Repaints a white drawing in a text style, which the List adapts to the selection highlight.
+    @ViewBuilder
+    func inkOnSelection(_ selected: Bool, _ style: AnyShapeStyle) -> some View {
+        if selected {
+            hidden().overlay { Rectangle().fill(style).mask { self } }
+        } else {
+            self
+        }
     }
 }

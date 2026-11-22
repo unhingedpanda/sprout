@@ -6,16 +6,15 @@ struct PieceTray: View {
     let torrent: Torrent
     var grid = DotGrid(dot: 4, gap: 2)
     var rows = 2
-
-    @Environment(\.backgroundProminence) private var prominence
+    /// Draws in white only (have solid, missing faint), for the row to repaint in its text style.
+    var selected = false
 
     var body: some View {
         Canvas { context, size in
             let count = grid.columns(in: size.width) * rows
             let filled = Int((torrent.progress * Double(count)).rounded(.down))
-            let onSelection = prominence == .increased
-            let have: Color = onSelection ? .white : (torrent.state.isStopped ? .secondary : .lit)
-            let empty: Color = onSelection ? .white.opacity(0.2) : .unlit
+            let have: Color = selected ? .white : (torrent.state.isStopped ? .secondary : .lit)
+            let empty: Color = selected ? .white.opacity(0.25) : .unlit
             // The leading edge: one column of dots in flight while bytes arrive.
             let edge = torrent.downloadSpeed >= Format.movingThreshold && torrent.progress < 1 ? filled..<min(count, filled + rows) : 0..<0
             for index in 0..<count {
@@ -23,7 +22,7 @@ struct PieceTray: View {
                 if index < filled {
                     context.drawDot(rect, color: have)
                 } else if edge.contains(index) {
-                    context.drawDot(rect, color: onSelection ? .white : .signal)
+                    context.drawDot(rect, color: selected ? have : .signal)
                 } else {
                     context.drawDot(rect, color: empty)
                 }

@@ -563,6 +563,12 @@ private struct CommitField: View {
         .onChange(of: focused) { if !focused { save() } }
         .onAppear { draft = text }
         .onDisappear(perform: save)
+        // A text area keeps focus when you click a label beside it, so a list also saves a
+        // second after typing stops, not only when the window closes.
+        .task(id: draft) {
+            guard lines, (try? await Task.sleep(for: .seconds(1))) != nil else { return }
+            save()
+        }
     }
 
     private func save() {

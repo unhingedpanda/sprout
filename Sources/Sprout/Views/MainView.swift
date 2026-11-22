@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainView: View {
     @Environment(AppModel.self) private var model
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         @Bindable var model = model
@@ -11,6 +12,8 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 260)
         } detail: {
             TorrentList()
+                // Room for a name, the tray and the figure. With the sidebar and the inspector at its ideal width, this sets the 900 window minimum.
+                .frame(minWidth: 360)
                 .inspector(isPresented: $model.showsInspector) {
                     InspectorView()
                         .groundedInspector()
@@ -21,6 +24,8 @@ struct MainView: View {
         .navigationSubtitle(countSummary)
         .containerBackground(Color.ground, for: .window)
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Filter by name")
+        .searchFocused($searchFocused)
+        .onChange(of: model.searchFocusRequests) { searchFocused = true }
         .toolbar { toolbar }
         .dropDestination(for: URL.self) { urls, _ in
             model.open(urls)
@@ -34,6 +39,9 @@ struct MainView: View {
     // Speeds live in the pulse band; the subtitle only counts, so nothing is said twice.
     private var countSummary: String {
         let count = model.visibleTorrents.count
+        let total = model.count(model.sidebar)
+        // While filtering, say how many of the list match, not that the list is empty.
+        if count != total { return "\(count) of \(total) torrents" }
         return count == 1 ? "1 torrent" : "\(count) torrents"
     }
 

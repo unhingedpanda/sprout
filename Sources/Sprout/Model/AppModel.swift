@@ -36,6 +36,8 @@ final class AppModel {
     var sortKey: SortKey = .added
     var sortAscending = false
     var showsInspector = true
+    /// Bumped by Edit › Filter Torrents (⌘F); the main window moves focus to its search field.
+    var searchFocusRequests = 0
     var showsAddSheet = false
     var pendingRemoval: Set<String>?
     var errorMessage: String?
@@ -222,6 +224,7 @@ final class AppModel {
         let allKnown = !known.contains(nil)
         perform { [self] api in
             try await Self.adding(allKnown: allKnown) { try await api.add(urls: unique, options: options) }
+            if options.chooseFilesFirst { showFilesToChoose(unique.compactMap(Magnet.infoHash)) }
             reportDuplicates(Set(known.compactMap { $0 }), of: unique.count)
         }
     }
@@ -236,8 +239,19 @@ final class AppModel {
             // Two copies of one file count once; every file must be recognised to treat a refusal as a duplicate.
             let allKnown = parsed.count == files.count && !known.contains(nil)
             try await Self.adding(allKnown: allKnown) { try await api.add(torrentFiles: files, options: options) }
+            if options.chooseFilesFirst { showFilesToChoose(parsed.compactMap { $0["hash"]?.string }) }
             reportDuplicates(Set(known.compactMap { $0 }), of: files.count)
         }
+    }
+
+    /// After "Choose files before downloading", selects the new torrents and opens the Files tab,
+    /// where the Add sheet told the user to pick. The rows appear with the next refresh.
+    private func showFilesToChoose(_ hashes: [String]) {
+        guard !hashes.isEmpty else { return }
+        sidebar = .state(.all)
+        selection = Set(hashes.map { $0.lowercased() })
+        showsInspector = true
+        UserDefaults.standard.set("files", forKey: "inspectorTab")
     }
 
     /// The torrent in the list that has this hash as its ID or as its v1 or v2 info hash.

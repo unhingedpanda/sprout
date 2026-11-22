@@ -252,7 +252,7 @@ struct TorrentFile: Identifiable, Sendable {
     let name: String
     let size: Int64
     let progress: Double
-    let priority: FilePriority
+    var priority: FilePriority
 
     init(fields: [String: JSON]) {
         id = Int(fields.int("index"))

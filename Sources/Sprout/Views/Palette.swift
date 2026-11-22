@@ -23,7 +23,8 @@ extension Color {
 }
 
 extension Torrent {
-    var isMoving: Bool { downloadSpeed >= Format.movingThreshold || uploadSpeed >= Format.movingThreshold }
+    // A finished torrent's stray download bytes don't count: the row doesn't show them either.
+    var isMoving: Bool { (downloadSpeed >= Format.movingThreshold && progress < 1) || uploadSpeed >= Format.movingThreshold }
 
     /// Colour for this torrent's big number: orange while moving, ink otherwise.
     var figureColor: Color {
@@ -57,4 +58,33 @@ struct InkLinkButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == InkLinkButtonStyle {
     static var inkLink: InkLinkButtonStyle { InkLinkButtonStyle() }
+}
+
+/// A checkbox drawn in ink. The system's unchecked box is dark grey on dark grey, which
+/// vanished on Sprout's black ground; this one keeps an outline you can see when it's off.
+struct InkCheckboxStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 3.5)
+                    .fill(configuration.isOn ? Color.lit : Color.clear)
+                RoundedRectangle(cornerRadius: 3.5)
+                    .strokeBorder(configuration.isOn ? Color.lit : Color.secondary, lineWidth: 1.25)
+                if configuration.isOn {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(Color.ground)
+                }
+            }
+            .frame(width: 14, height: 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // VoiceOver hears a plain checkbox with the toggle's own label.
+        .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+    }
+}
+
+extension ToggleStyle where Self == InkCheckboxStyle {
+    static var inkCheckbox: InkCheckboxStyle { InkCheckboxStyle() }
 }

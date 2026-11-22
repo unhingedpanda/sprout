@@ -9,7 +9,7 @@ struct SproutApp: App {
         Window("Sprout", id: "main") {
             RootView()
                 .environment(appDelegate.model)
-                .frame(minWidth: 760, minHeight: 420)
+                .frame(minWidth: 900, minHeight: 420)
         }
         .defaultSize(width: 1380, height: 760)
         .commands { SproutCommands(model: appDelegate.model) }
@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
         if Preferences.notifyOnCompletion {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         }
         Task { await model.start() }
     }
@@ -88,6 +88,10 @@ struct SproutCommands: Commands {
             Button("Engine Log") { openWindow(id: "log") }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
             Divider()
+        }
+        CommandGroup(after: .textEditing) {
+            Button("Filter Torrents") { model.searchFocusRequests += 1 }
+                .keyboardShortcut("f")
         }
         CommandMenu("Torrent") {
             TorrentActions(model: model, hashes: model.selection, showsShortcuts: true)

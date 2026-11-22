@@ -244,7 +244,7 @@ private struct FilesPane: View {
                     get: { file.priority != .skip },
                     set: { setPriority($0 ? .normal : .skip, for: file) }
                 ))
-                .toggleStyle(.checkbox)
+                .toggleStyle(.inkCheckbox)
                 .labelsHidden()
                 .help(file.priority == .skip ? "Download this file" : "Skip this file")
 
@@ -259,6 +259,9 @@ private struct FilesPane: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+                // Dim the words of a skipped file, not its checkbox: an empty box at half
+                // strength all but vanished on the black ground.
+                .opacity(file.priority == .skip ? 0.55 : 1)
                 Spacer(minLength: 0)
                 if file.priority == .high || file.priority == .maximum {
                     Text(file.priority.title)
@@ -266,7 +269,6 @@ private struct FilesPane: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .opacity(file.priority == .skip ? 0.55 : 1)
             .contextMenu {
                 Picker("Priority", selection: Binding(get: { file.priority }, set: { setPriority($0, for: file) })) {
                     ForEach(FilePriority.allCases) { Text($0.title).tag($0) }
@@ -308,6 +310,9 @@ private struct FilesPane: View {
     }
 
     private func setPriority(_ priority: FilePriority, for file: TorrentFile) {
+        // Show the change at once: waiting for the engine's reply made quick clicks on
+        // several checkboxes look ignored.
+        if let index = files.firstIndex(where: { $0.id == file.id }) { files[index].priority = priority }
         Task {
             try? await api.setFilePriority(hash: torrent.id, fileIndexes: [file.id], priority: priority)
             if let loaded = try? await api.files(hash: torrent.id) { files = loaded }
@@ -442,14 +447,18 @@ private struct TrackersPane: View {
                     Text(torrent.isPrivate ? "No trackers." : "No trackers. Peers come from DHT, peer exchange and local discovery.")
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                PaneSectionHeader("Trackers")
             }
             if !pseudo.isEmpty {
-                Section("Discovery") {
+                Section {
                     ForEach(pseudo) { row($0) }
+                } header: {
+                    PaneSectionHeader("Discovery")
                 }
             }
             if !webSeeds.isEmpty {
-                Section("Web seeds") {
+                Section {
                     ForEach(webSeeds, id: \.self) { url in
                         Text(URL(string: url)?.host() ?? url)
                             .lineLimit(1)
@@ -460,6 +469,8 @@ private struct TrackersPane: View {
                                 Button("Remove Web Seed") { removeWebSeed(url) }
                             }
                     }
+                } header: {
+                    PaneSectionHeader("Web seeds")
                 }
             }
         }
@@ -631,5 +642,16 @@ struct LinesSheet: View {
                 .disabled(lines.isEmpty)
             }
         }
+    }
+}
+
+/// A section title in an inspector list. The List's own header style is too dim to read on the
+/// black ground, so it uses the secondary ink, like the row details.
+private struct PaneSectionHeader: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
     }
 }

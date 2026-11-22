@@ -145,7 +145,10 @@ struct CreateTorrentSheet: View {
             Label("Couldn't create the torrent", systemImage: "exclamationmark.triangle")
                 .font(.headline)
                 .foregroundStyle(Color.fault)
-            Text(message).foregroundStyle(.secondary).textSelection(.enabled)
+            // The engine's reason can be cryptic ("Operation canceled" for a file it can't read),
+            // so say what to check first and keep its words as the detail.
+            Text("Check that Sprout can read everything you chose and save in the folder you picked.")
+            Text(message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
