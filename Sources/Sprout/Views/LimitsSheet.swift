@@ -66,18 +66,13 @@ struct LimitsSheet: View {
                     }
                 }
             }
-            .formStyle(.grouped)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Apply") { apply() }
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding([.horizontal, .bottom], 20)
+            .sheetForm()
         }
-        .frame(width: 460)
+        .sproutSheet(width: 460)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) { Button("Apply") { apply() }.tint(.action) }
+        }
         .onAppear(perform: load)
     }
 

@@ -58,22 +58,19 @@ struct AddTorrentSheet: View {
                 }
 
                 Section {
-                    LabeledContent("Save to") {
+                    LabeledContent {
                         HStack {
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(savePath.isEmpty ? "Default folder" : URL(filePath: savePath).lastPathComponent)
-                                    .help(savePath)
-                                if let freeSpace {
-                                    Text("\(Format.bytes(freeSpace)) free")
-                                        .font(.caption)
-                                        .monospacedDigit()
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
+                            Text(savePath.isEmpty ? "Default folder" : URL(filePath: savePath).lastPathComponent)
+                                .help(savePath)
                             Button("Change…") { choosingFolder = true }
                                 .fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
                                     if case .success(let url) = result { savePath = url.path }
                                 }
+                        }
+                    } label: {
+                        Text("Save to")
+                        if let freeSpace {
+                            Text("\(Format.bytes(freeSpace)) free").monospacedDigit()
                         }
                     }
                     if !model.categories.isEmpty {
@@ -93,19 +90,17 @@ struct AddTorrentSheet: View {
                     }
                 }
             }
-            .formStyle(.grouped)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+            .sheetForm()
+        }
+        .sproutSheet(width: 480)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
                 Button("Add") { add() }
-                    .keyboardShortcut(.defaultAction)
+                    .tint(.action)
                     .disabled(linkList.isEmpty && files.isEmpty)
             }
-            .padding([.horizontal, .bottom], 20)
         }
-        .frame(width: 480)
         .task {
             if savePath.isEmpty, let path = try? await model.engine.api?.defaultSavePath() {
                 defaultPath = path

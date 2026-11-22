@@ -41,13 +41,9 @@ struct CreateTorrentSheet: View {
             case .finished(let url): finished(url)
             case .failed(let message): failed(message)
             }
-            HStack {
-                Spacer()
-                buttons
-            }
-            .padding([.horizontal, .bottom], 20)
         }
-        .frame(width: 500)
+        .sproutSheet(width: 500)
+        .toolbar { buttons }
         .onDisappear { cancel() }
     }
 
@@ -71,7 +67,7 @@ struct CreateTorrentSheet: View {
             }
 
             Section {
-                LinesEditor(text: $trackers, placeholder: "udp://tracker.example.org:1337/announce")
+                LinesEditor(text: $trackers, placeholder: "udp://tracker.example.org:1337/announce", minHeight: 48)
                     .accessibilityLabel("Trackers")
             } header: {
                 Text("Trackers")
@@ -80,7 +76,7 @@ struct CreateTorrentSheet: View {
             }
 
             Section {
-                LinesEditor(text: $webSeeds, placeholder: "https://example.org/files/", minHeight: 40)
+                LinesEditor(text: $webSeeds, placeholder: "https://example.org/files/", minHeight: 22)
                     .accessibilityLabel("Web seeds")
             } header: {
                 Text("Web seeds")
@@ -106,7 +102,7 @@ struct CreateTorrentSheet: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .sheetForm()
     }
 
     // MARK: Progress and result
@@ -138,7 +134,7 @@ struct CreateTorrentSheet: View {
                  : "Saved as \(url.lastPathComponent).")
                 .foregroundStyle(.secondary)
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                .buttonStyle(.link)
+                .buttonStyle(.inkLink)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,25 +151,24 @@ struct CreateTorrentSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var buttons: some View {
+    /// The sheet's buttons for each phase, in the places macOS puts sheet buttons.
+    @ToolbarContentBuilder
+    private var buttons: some ToolbarContent {
         switch phase {
         case .editing:
-            Button("Cancel", role: .cancel) { dismiss() }
-                .keyboardShortcut(.cancelAction)
-            Button("Create…", action: create)
-                .keyboardShortcut(.defaultAction)
-                .disabled(source == nil || work != nil)
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Create…", action: create)
+                    .tint(.action)
+                    .disabled(source == nil || work != nil)
+            }
         case .creating:
-            Button("Cancel", role: .cancel) { cancel() }
-                .keyboardShortcut(.cancelAction)
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { cancel() } }
         case .finished:
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction)
+            ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.tint(.action) }
         case .failed:
-            Button("Back") { phase = .editing }
-            Button("Close") { dismiss() }
-                .keyboardShortcut(.defaultAction)
+            ToolbarItem(placement: .cancellationAction) { Button("Back") { phase = .editing } }
+            ToolbarItem(placement: .confirmationAction) { Button("Close") { dismiss() }.tint(.action) }
         }
     }
 

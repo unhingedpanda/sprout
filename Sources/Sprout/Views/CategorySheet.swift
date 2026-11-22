@@ -33,21 +33,19 @@ struct CategorySheet: View {
                     Text("Torrents in this category that use the category folder move here. Turn that on per torrent in the Torrent menu, or for new torrents in Settings › Downloads.")
                 }
             }
-            .formStyle(.grouped)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+            .sheetForm()
+        }
+        .sproutSheet(width: 440)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     model.setCategoryFolder(category, to: folder)
                     dismiss()
                 }
-                .keyboardShortcut(.defaultAction)
+                .tint(.action)
             }
-            .padding([.horizontal, .bottom], 20)
         }
-        .frame(width: 440)
         .onAppear { folder = model.categoryFolders[category] ?? "" }
     }
 }

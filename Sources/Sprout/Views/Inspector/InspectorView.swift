@@ -124,7 +124,7 @@ private struct GeneralPane: View {
                     Text("Limits")
                     Spacer()
                     Button("Change…") { model.pendingLimits = [torrent.id] }
-                        .buttonStyle(.link)
+                        .buttonStyle(.inkLink)
                         .font(.callout)
                 }
             }
@@ -138,7 +138,7 @@ private struct GeneralPane: View {
                     Button(URL(filePath: torrent.savePath).lastPathComponent) {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: torrent.savePath)])
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.inkLink)
                     .help(torrent.savePath)
                 }
                 if !properties.string("created_by").isEmpty {
@@ -466,7 +466,7 @@ private struct TrackersPane: View {
         .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .bottom) {
             PaneBar {
-                Menu("Add", systemImage: "plus") {
+                Menu("Add Trackers or Web Seeds", systemImage: "plus") {
                     Button("Add Trackers…") { adding = .trackers }
                     Button("Add Web Seeds…") { adding = .webSeeds }
                 }
@@ -574,10 +574,12 @@ private struct PaneBar<Content: View>: View {
             content
             Spacer()
         }
-        .labelStyle(.iconOnly)
+        // Icon and word: a bare "+" that opens a menu is easy to miss.
+        .labelStyle(.titleAndIcon)
         .buttonStyle(.borderless)
+        .font(.callout)
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
     }
@@ -615,20 +617,19 @@ struct LinesSheet: View {
                     Text(footer)
                 }
             }
-            .formStyle(.grouped)
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+            .sheetForm()
+        }
+        .sproutSheet(width: 440)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel", role: .cancel) { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
                 Button(action) {
                     submit(lines)
                     dismiss()
                 }
-                .keyboardShortcut(.defaultAction)
+                .tint(.action)
                 .disabled(lines.isEmpty)
             }
-            .padding([.horizontal, .bottom], 20)
         }
-        .frame(width: 440)
     }
 }

@@ -43,8 +43,27 @@ struct SheetHeader: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
+        // Lines up with the grouped form's section titles below it.
+        .padding(.horizontal, 28)
         .padding(.top, 18)
         .accessibilityAddTraits(.isHeader)
     }
 }
+
+/// What every Sprout sheet shares. Escape and Return come from the Cancel and confirm buttons'
+/// placements, as in any Mac sheet.
+private struct SproutSheet: ViewModifier {
+    let width: CGFloat
+
+    func body(content: Content) -> some View {
+        content.frame(width: width)
+    }
+}
+
+extension View {
+    func sproutSheet(width: CGFloat) -> some View { modifier(SproutSheet(width: width)) }
+
+    /// A grouped form on the sheet's own surface, so the header and the form read as one piece.
+    func sheetForm() -> some View { formStyle(.grouped).scrollContentBackground(.hidden) }
+}
+
