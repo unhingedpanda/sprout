@@ -102,6 +102,11 @@ struct SproutCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: [.command, .option])
         }
+        // No help book: Help opens the project page, which has the README and issues.
+        CommandGroup(replacing: .help) {
+            Link("Sprout on GitHub", destination: URL(string: "https://github.com/unhingedpanda/sprout")!)
+            Link("Report a Problem…", destination: URL(string: "https://github.com/unhingedpanda/sprout/issues/new")!)
+        }
         CommandGroup(after: .sidebar) {
             Button(model.showsInspector ? "Hide Inspector" : "Show Inspector") {
                 model.showsInspector.toggle()

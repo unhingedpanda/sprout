@@ -1,8 +1,10 @@
+<img src="docs/icon.png" width="128" alt="Sprout's icon: a seedling drawn in white dots on a black LED panel, with one orange dot at the tip">
+
 # Sprout
 
 A native macOS front end for the qBittorrent engine. Sprout bundles qBittorrent's headless
 engine (`qbittorrent-nox`), starts it when the app opens, and drives it over the engine's
-local Web API. "Sprout" is a working name.
+local Web API.
 
 Sprout is not an official qBittorrent product.
 
@@ -72,11 +74,24 @@ Set `QBT_ENGINE_APP` to use a bundle somewhere other than `build/engine`.
 - Sprout records the engine's process ID. If Sprout crashes and leaves the engine running,
   the next launch asks that engine to save and quit before starting a new one.
 
+## Icon
+
+`Resources/Sprout.icon` is an Icon Composer icon drawn by `scripts/make-icon.py`: a seedling in
+lit dots over a seed bed, on the app's black LED panel, with one orange dot for new growth.
+Edit the pattern in the script and run it again; `--preview out.png` writes a flat preview.
+
+## Licence
+
+Sprout is free software under the GNU GPL, version 3 or later (see `LICENSE`). The app bundles
+qBittorrent's engine, unmodified, and the libraries it needs: Qt (LGPL v3), libtorrent, Boost,
+OpenSSL, ICU, GLib and gettext's libintl (LGPL v2.1), PCRE2, Zstandard, Brotli,
+double-conversion and libb2. Their licence texts are in `Resources/Licenses` and inside the app,
+and the About window lists each with its version and source.
+
 ## Not done yet
 
 - Notarized release: `scripts/release.sh` is ready but has not produced a release yet.
 - Intel Macs: the engine bundle is Apple silicon only.
-- App icon and final name.
 - Importing torrents from another client.
 
 ## Licence

@@ -44,11 +44,13 @@ Constraints:
 - Distribution: free download, notarized; Mac App Store not planned.
 - Engine terms follow qBittorrent's Web API: torrents are "started"/"stopped" (5.x wording), not "paused".
 
-Undecided: product name (working folder name `torrent-mac`).
+Name: Sprout (decided 2026-11-23). Working folder name stays `torrent-mac`.
 
 ## Brand Commitments
 
-None yet. Must not present itself as an official qBittorrent product.
+- Name: Sprout.
+- Icon: a dot-matrix seedling over a seed bed on a black LED panel, one International Orange dot for new growth (`Resources/Sprout.icon`, drawn by `scripts/make-icon.py`).
+- Must not present itself as an official qBittorrent product; the About window says so.
 
 ## Evidence on Hand
 
