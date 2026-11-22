@@ -26,6 +26,7 @@ struct LimitsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Speed and Seeding Limits", subtitle: title)
             Form {
                 Section {
                     UnitField(title: "Download", value: $download, unit: "KB/s")
@@ -77,7 +78,6 @@ struct LimitsSheet: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 460)
-        .navigationTitle("Limits for \(title)")
         .onAppear(perform: load)
     }
 

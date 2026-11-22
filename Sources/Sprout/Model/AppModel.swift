@@ -222,7 +222,7 @@ final class AppModel {
         let allKnown = !known.contains(nil)
         perform { [self] api in
             try await Self.adding(allKnown: allKnown) { try await api.add(urls: unique, options: options) }
-            reportDuplicates(Set(known.compactMap { $0 }))
+            reportDuplicates(Set(known.compactMap { $0 }), of: unique.count)
         }
     }
 
@@ -236,7 +236,7 @@ final class AppModel {
             // Two copies of one file count once; every file must be recognised to treat a refusal as a duplicate.
             let allKnown = parsed.count == files.count && !known.contains(nil)
             try await Self.adding(allKnown: allKnown) { try await api.add(torrentFiles: files, options: options) }
-            reportDuplicates(Set(known.compactMap { $0 }))
+            reportDuplicates(Set(known.compactMap { $0 }), of: files.count)
         }
     }
 
@@ -262,12 +262,16 @@ final class AppModel {
     }
 
     /// Selects torrents that were added again and says what the engine did with them.
-    private func reportDuplicates(_ hashes: Set<String>) {
+    private func reportDuplicates(_ hashes: Set<String>, of total: Int) {
         let existing = hashes.compactMap { torrents[$0] }
         guard let first = existing.first else { return }
         sidebar = .state(.all)
         selection = Set(existing.map(\.id))
-        let name = existing.count == 1 ? "“\(first.name)” is" : "\(existing.count) of these torrents are"
+        let name = switch existing.count {
+        case 1: "“\(first.name)” is"
+        case total: total == 2 ? "Both torrents are" : "All \(total) torrents are"
+        default: "\(existing.count) of these torrents are"
+        }
         let result: String
         if !mergesTrackers {
             result = "Nothing was added. Turn on tracker merging in Settings › Downloads to combine their trackers."
@@ -292,10 +296,16 @@ final class AppModel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(torrent.name).torrent"
         panel.allowedContentTypes = [.init(filenameExtension: "torrent") ?? .data]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        perform { api in
-            let data = try await api.fetch("torrents/export", ["hash": torrent.id])
-            try data.write(to: url)
+        let save: (URL) -> Void = { url in
+            self.perform { api in
+                let data = try await api.fetch("torrents/export", ["hash": torrent.id])
+                try data.write(to: url)
+            }
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window) { if $0 == .OK, let url = panel.url { save(url) } }
+        } else if panel.runModal() == .OK, let url = panel.url {
+            save(url)
         }
     }
 

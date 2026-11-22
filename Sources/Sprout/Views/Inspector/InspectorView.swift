@@ -178,7 +178,7 @@ private struct GeneralPane: View {
     }
 
     private func limit(_ bytes: Int64) -> String {
-        bytes > 0 ? "\(Format.bytes(bytes))/s" : "No limit"
+        bytes > 0 ? "\((Double(bytes) / 1024).formatted(.number.precision(.fractionLength(0...1)))) KB/s" : "No limit"
     }
 
     /// Connected count, plus the swarm size the trackers report when they report one.
@@ -253,7 +253,8 @@ private struct FilesPane: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(file.name)
-                    Text("\(Format.bytes(file.size)), \(Format.percent(file.progress))")
+                    Text(folder(of: file).map { "\(Format.bytes(file.size)), \(Format.percent(file.progress)), in \($0)" }
+                         ?? "\(Format.bytes(file.size)), \(Format.percent(file.progress))")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -379,7 +380,7 @@ private struct PeersPane: View {
                 model.run { try await $0.call("torrents/addPeers", ["hashes": hash, "peers": lines.joined(separator: "|")]) }
             }
         }
-        .confirmationDialog("Ban \(banning?.id ?? "")?", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }),
+        .confirmationDialog("Ban \(banning?.address ?? "")?", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }),
                             presenting: banning) { peer in
             Button("Ban Peer", role: .destructive) {
                 model.run { try await $0.call("transfer/banPeers", ["peers": peer.id]) }
@@ -388,8 +389,13 @@ private struct PeersPane: View {
             Text("Sprout disconnects every peer at this address and refuses it on every torrent. Remove the ban in Settings › Privacy.")
         }
         .polling(id: torrent.id) {
+            // Hold the list still while a ban is being confirmed.
+            guard banning == nil else { return }
             if let loaded = try? await api.peers(hash: torrent.id) {
-                peers = loaded.sorted { ($0.downloadSpeed + $0.uploadSpeed) > ($1.downloadSpeed + $1.uploadSpeed) }
+                peers = loaded.sorted {
+                    let a = $0.downloadSpeed + $0.uploadSpeed, b = $1.downloadSpeed + $1.uploadSpeed
+                    return a != b ? a > b : $0.id < $1.id
+                }
             }
         }
     }
@@ -600,11 +606,11 @@ struct LinesSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: title)
             Form {
                 Section {
-                    TextField(title, text: $text, prompt: Text(prompt), axis: .vertical)
-                        .lineLimit(4...10)
-                        .labelsHidden()
+                    LinesEditor(text: $text, placeholder: prompt, minHeight: 90)
+                        .accessibilityLabel(title)
                 } footer: {
                     Text(footer)
                 }
@@ -624,6 +630,5 @@ struct LinesSheet: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 440)
-        .navigationTitle(title)
     }
 }

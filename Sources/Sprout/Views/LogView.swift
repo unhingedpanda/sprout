@@ -37,6 +37,8 @@ struct LogView: View {
                     .frame(width: 76, alignment: .leading)
                 if let label = label(entry.kind) {
                     label.font(.callout).fixedSize()
+                        // Ink for warnings, the fault colour (always with a word) for errors; never the accent.
+                        .foregroundStyle(entry.kind == .critical ? Color.fault : Color.primary)
                 }
                 Text(entry.text)
                     .textSelection(.enabled)
@@ -79,6 +81,7 @@ struct LogView: View {
             }
         }
         .navigationTitle("Engine Log")
+        .tint(.lit)
         .task(id: model.engine.api?.baseURL) { await poll() }
     }
 
@@ -132,8 +135,8 @@ struct LogView: View {
         return Entry(id: Int(id), date: date(json), text: text.trimmingCharacters(in: .whitespaces), kind: .blocked)
     }
 
-    /// The engine sends milliseconds since 1970.
+    /// The engine sends seconds since 1970.
     private static func date(_ json: JSON) -> Date {
-        Date(timeIntervalSince1970: (json["timestamp"]?.double ?? 0) / 1000)
+        Date(timeIntervalSince1970: json["timestamp"]?.double ?? 0)
     }
 }

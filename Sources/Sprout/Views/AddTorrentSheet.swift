@@ -27,12 +27,11 @@ struct AddTorrentSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Add Torrent")
             Form {
                 Section {
-                    TextField("Magnet links or URLs", text: $links, prompt: Text("Paste magnet links or .torrent URLs"), axis: .vertical)
-                        .lineLimit(3...6)
-                        .labelsHidden()
-                        .multilineTextAlignment(.leading)
+                    LinesEditor(text: $links, placeholder: "Paste magnet links or .torrent URLs")
+                        .accessibilityLabel("Magnet links or URLs")
                 } header: {
                     Text("Links")
                 } footer: {
@@ -41,9 +40,17 @@ struct AddTorrentSheet: View {
 
                 Section("Files") {
                     ForEach(files, id: \.self) { url in
-                        Label(url.lastPathComponent, systemImage: "doc")
+                        HStack {
+                            Label(url.lastPathComponent, systemImage: "doc")
+                            Spacer()
+                            Button("Remove \(url.lastPathComponent)", systemImage: "minus.circle") {
+                                files.removeAll { $0 == url }
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("Don't add this file")
+                        }
                     }
-                    .onDelete { files.remove(atOffsets: $0) }
                     Button("Choose .torrent Files…") { choosingFiles = true }
                         .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [Self.torrentType], allowsMultipleSelection: true) { result in
                             if case .success(let urls) = result { files.append(contentsOf: urls) }
@@ -99,7 +106,6 @@ struct AddTorrentSheet: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 480)
-        .navigationTitle("Add Torrent")
         .task {
             if savePath.isEmpty, let path = try? await model.engine.api?.defaultSavePath() {
                 defaultPath = path

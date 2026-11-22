@@ -103,7 +103,7 @@ struct SeedBed: View {
         HStack(spacing: 14) {
             Label(torrent.state.label, systemImage: torrent.state.symbol)
                 .foregroundStyle(torrent.state.isError ? Color.fault : Color.secondary)
-            if torrent.downloadSpeed >= Format.movingThreshold {
+            if torrent.downloadSpeed >= Format.movingThreshold && torrent.progress < 1 {
                 Label(Format.speed(torrent.downloadSpeed), systemImage: "arrow.down")
                     .foregroundStyle(Color.signal)
             }

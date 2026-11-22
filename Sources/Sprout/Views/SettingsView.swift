@@ -1,4 +1,5 @@
 import ServiceManagement
+import SystemConfiguration
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -21,6 +22,7 @@ struct SettingsView: View {
             Tab("Privacy", systemImage: "lock.shield", value: "Privacy") { PrivacySettings(settings: settings) }
         }
         .frame(width: 600)
+        .tint(.lit)
         .task(id: model.engine.api?.baseURL) { await settings.load(model.engine.api) }
     }
 }
@@ -106,7 +108,7 @@ private struct SettingsForm<Content: View>: View {
         }
         .formStyle(.grouped)
         .scrollDisabled(!scrolls)
-        .frame(height: scrolls ? 560 : nil)
+        .frame(height: scrolls ? 440 : nil)
         .fixedSize(horizontal: false, vertical: !scrolls)
         .overlay(alignment: .bottom) {
             if settings.isLoaded, let message = settings.message {
@@ -173,7 +175,7 @@ private struct SpeedSettings: View {
     let settings: EngineSettings
 
     var body: some View {
-        SettingsForm(settings: settings) {
+        SettingsForm(settings: settings, scrolls: true) {
             Section {
                 UnitField(title: "Download", value: settings.number("dl_limit", scale: 1024), unit: "KB/s")
                 UnitField(title: "Upload", value: settings.number("up_limit", scale: 1024), unit: "KB/s")
@@ -298,7 +300,7 @@ private struct ConnectionSettings: View {
                     ForEach(interfaces, id: \.value) { Text($0.name).tag($0.value) }
                 }
             } footer: {
-                Text("Pick your VPN's interface to keep torrents off the network when the VPN is down.")
+                Text("Pick your VPN's interface to keep torrents off the network when the VPN is down. VPNs usually appear as a tunnel.")
             }
             Section {
                 UnitField(title: "Connections in total", value: settings.number("max_connec"), unit: "peers")
@@ -311,8 +313,8 @@ private struct ConnectionSettings: View {
             guard let api = settings.api, let data = try? await api.fetch("app/networkInterfaceList"),
                   let list = try? JSON.decode(data).array else { return }
             interfaces = list.compactMap { item in
-                guard let name = item["name"]?.string, let value = item["value"]?.string else { return nil }
-                return (name, value)
+                guard let value = item["value"]?.string else { return nil }
+                return NetworkNames.label(value).map { ($0, value) }
             }
         }
     }
@@ -460,7 +462,7 @@ private struct PrivacySettings: View {
                 // and proxy_misc covers its other connections. One switch here covers both.
                 Picker("Proxy", selection: Binding(get: { proxyType.isEmpty ? "None" : proxyType },
                                                    set: { type in
-                    let on = type != "None"
+                    let on = type != "None" && !settings.values.string("proxy_ip").isEmpty
                     settings.set(["proxy_type": .string(type), "proxy_bittorrent": .bool(on), "proxy_misc": .bool(on)])
                 })) {
                     Text("None").tag("None")
@@ -470,7 +472,8 @@ private struct PrivacySettings: View {
                 }
                 if !proxyType.isEmpty && proxyType != "None" {
                     CommitField(title: "Server", text: settings.values.string("proxy_ip"), prompt: "proxy.example.org") {
-                        settings.set(["proxy_ip": .string($0)])
+                        // Traffic starts going through the proxy only once it has an address.
+                        settings.set(["proxy_ip": .string($0), "proxy_bittorrent": .bool(!$0.isEmpty), "proxy_misc": .bool(!$0.isEmpty)])
                     }
                     LabeledContent("Port") {
                         TextField("Port", value: Binding(
@@ -496,15 +499,14 @@ private struct PrivacySettings: View {
                 }
             } footer: {
                 if !proxyType.isEmpty && proxyType != "None" {
-                    Text(settings.values["proxy_bittorrent"]?.bool == false
-                         ? "The engine isn't sending torrent traffic through this proxy. Pick the proxy type again to turn it on."
+                    Text(settings.values.string("proxy_ip").isEmpty
+                         ? "Enter the proxy's server to start using it. Until then, connections go out directly."
                          : "Trackers go through the proxy. Peer connections do too while that switch is on.")
                 }
             }
 
             Section {
-                CommitField(title: "Banned addresses", text: settings.values.string("banned_IPs"),
-                            prompt: "203.0.113.5", lines: true) {
+                CommitField(title: "Banned addresses", text: settings.values.string("banned_IPs"), lines: true) {
                     settings.set(["banned_IPs": .string($0)])
                 }
             } footer: {
@@ -547,7 +549,11 @@ private struct CommitField: View {
             if secure {
                 SecureField(title, text: $draft, prompt: Text(prompt))
             } else if lines {
-                TextField(title, text: $draft, prompt: Text(prompt), axis: .vertical).lineLimit(3...8)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                    LinesEditor(text: $draft, placeholder: prompt)
+                        .accessibilityLabel(title)
+                }
             } else {
                 TextField(title, text: $draft, prompt: Text(prompt))
             }
@@ -640,4 +646,28 @@ private struct TimeField: View {
             }
         ), displayedComponents: .hourAndMinute)
     }
+}
+
+/// Turns BSD interface names into what people recognise: "Wi-Fi (en0)", "VPN tunnel (utun3)".
+/// Loopback and Apple's AirDrop/peer-to-peer links are left out: binding to them never makes sense.
+private enum NetworkNames {
+    static func label(_ bsdName: String) -> String? {
+        if bsdName == "lo0" || bsdName.hasPrefix("awdl") || bsdName.hasPrefix("llw") { return nil }
+        if bsdName.hasPrefix("utun") || bsdName.hasPrefix("ipsec") || bsdName.hasPrefix("ppp") {
+            return "Tunnel (\(bsdName))"
+        }
+        if let name = displayNames[bsdName] { return "\(name) (\(bsdName))" }
+        return bsdName
+    }
+
+    private static let displayNames: [String: String] = {
+        var names: [String: String] = [:]
+        for interface in (SCNetworkInterfaceCopyAll() as? [SCNetworkInterface]) ?? [] {
+            if let bsd = SCNetworkInterfaceGetBSDName(interface) as String?,
+               let name = SCNetworkInterfaceGetLocalizedDisplayName(interface) as String? {
+                names[bsd] = name
+            }
+        }
+        return names
+    }()
 }

@@ -34,6 +34,7 @@ struct CreateTorrentSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Create Torrent")
             switch phase {
             case .editing: form
             case .creating: creating
@@ -47,7 +48,6 @@ struct CreateTorrentSheet: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 500)
-        .navigationTitle("Create Torrent")
         .onDisappear { cancel() }
     }
 
@@ -71,9 +71,8 @@ struct CreateTorrentSheet: View {
             }
 
             Section {
-                TextField("Trackers", text: $trackers, prompt: Text(verbatim: "udp://tracker.example.org:1337/announce"), axis: .vertical)
-                    .lineLimit(3...6)
-                    .labelsHidden()
+                LinesEditor(text: $trackers, placeholder: "udp://tracker.example.org:1337/announce")
+                    .accessibilityLabel("Trackers")
             } header: {
                 Text("Trackers")
             } footer: {
@@ -81,9 +80,8 @@ struct CreateTorrentSheet: View {
             }
 
             Section {
-                TextField("Web seeds", text: $webSeeds, prompt: Text(verbatim: "https://example.org/files/"), axis: .vertical)
-                    .lineLimit(1...4)
-                    .labelsHidden()
+                LinesEditor(text: $webSeeds, placeholder: "https://example.org/files/", minHeight: 40)
+                    .accessibilityLabel("Web seeds")
             } header: {
                 Text("Web seeds")
             } footer: {
@@ -91,7 +89,7 @@ struct CreateTorrentSheet: View {
             }
 
             Section {
-                TextField("Comment", text: $comment)
+                TextField("Comment", text: $comment, prompt: Text("Optional"))
                 Picker("Piece size", selection: $pieceSize) {
                     ForEach(Self.pieceSizes, id: \.bytes) { Text($0.label).tag($0.bytes) }
                 }

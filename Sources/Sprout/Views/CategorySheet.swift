@@ -11,11 +11,12 @@ struct CategorySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Folder for “\(category)”")
             Form {
                 Section {
                     LabeledContent("Save to") {
                         HStack {
-                            Text(folder.isEmpty ? "A “\(category)” folder in the default folder" : URL(filePath: folder).lastPathComponent)
+                            Text(folder.isEmpty ? "Default folder › \(category)" : URL(filePath: folder).lastPathComponent)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .help(folder)
@@ -47,7 +48,6 @@ struct CategorySheet: View {
             .padding([.horizontal, .bottom], 20)
         }
         .frame(width: 440)
-        .navigationTitle("Category “\(category)”")
         .onAppear { folder = model.categoryFolders[category] ?? "" }
     }
 }

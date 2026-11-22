@@ -286,7 +286,9 @@ struct Tracker: Identifiable, Sendable {
 
     var displayName: String {
         if isPseudoTracker { return url.replacingOccurrences(of: "** [", with: "").replacingOccurrences(of: "] **", with: "") }
-        return URL(string: url)?.host() ?? url
+        // The port too, so two trackers on one host stay tellable apart.
+        guard let parsed = URL(string: url), let host = parsed.host() else { return url }
+        return parsed.port.map { "\(host):\($0)" } ?? host
     }
 
     var statusLabel: String {
@@ -312,6 +314,12 @@ struct Peer: Identifiable, Sendable {
     let downloadSpeed: Int64
     let uploadSpeed: Int64
     let countryCode: String
+
+    /// The IP without the port: bans apply to the whole address.
+    var address: String {
+        if id.hasPrefix("["), let end = id.firstIndex(of: "]") { return String(id[id.index(after: id.startIndex)..<end]) }
+        return id.split(separator: ":").count == 2 ? String(id.split(separator: ":")[0]) : id
+    }
 
     init(id: String, fields: [String: JSON]) {
         self.id = id

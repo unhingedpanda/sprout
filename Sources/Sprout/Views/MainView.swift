@@ -208,7 +208,12 @@ private struct MainDialogs: ViewModifier {
     private func categoryRemovalMessage(_ name: String) -> String {
         let count = model.torrents.values.count { $0.category == name || $0.category.hasPrefix(name + "/") }
         let subcategories = model.categories.filter { $0.hasPrefix(name + "/") }
-        var text = count == 0 ? "No torrents use it." : "Its \(count == 1 ? "torrent loses" : "\(count) torrents lose") the category. Any that use the category folder move to the default folder."
+        let only = model.torrents.values.first { $0.category == name }
+        var text = switch count {
+        case 0: "No torrents use it."
+        case 1: "“\(only?.name ?? name)” loses the category. If it uses the category folder, it moves to the default folder."
+        default: "\(count) torrents lose the category. Any that use the category folder move to the default folder."
+        }
         if !subcategories.isEmpty { text += " Its subcategories are removed too: \(subcategories.joined(separator: ", "))." }
         return text
     }
