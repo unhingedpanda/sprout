@@ -4,6 +4,21 @@ Mode: Operate. The user adds torrents, watches them, and manages what downloads 
 
 ## Direction contract
 
+Revision 4 (2026-11-23): the user found the monochrome build bland and chose the "LED pair" from three colour options. Revision 3's world stays; colour widens as below.
+
+LED colours (each means one thing; shape still tells direction, so colour is never the only cue):
+- Orange (Signal): bytes coming in. Download dots, digits, speeds, the tray's leading edge.
+- Green (Growth): bytes going out. Upload rings, upload speed and figure, a ring column that walks a seeding tray, the finish bloom, the ratio ≥ 1 leaf.
+- Amber (Caution): waiting, queued, checking, allocating, moving. State icons only.
+- Red (Fault): errors, always with a word.
+- Ink: everything else, all text, controls and selection.
+Rules: a state icon keeps its state colour; dots and digits colour only while bytes move. When both directions move, orange wins the figure. Sidebar filter icons light only while true right now (Downloading while something fetches, Seeding while something uploads, Errors while any exist). Selected rows drop every LED colour for ink.
+
+Delight (one focal moment, rest quiet): a download crossing 100% plays the bloom, a green sweep through its tray, and its figure reads DONE for 4 s. The Dock tile grows the icon's seedling with overall progress while Sprout downloads, tip orange, flowering green on a finish; seeding or idle shows the normal icon. A just-finished torrent stays in the Downloading list 4 s so its bloom is seen. Easter eggs: click the empty-state sprout to grow it until it flowers (its orange petals are the one decorative use of orange, allowed because the app icon's orange dot already names new growth); triple-click the pulse graph to scroll SPROUT through it. Haptics only for direct actions (drop, Alternative Speeds toggle, the sprout easter egg).
+Motion: Animatable canvases, frames run only during a change; Reduce Motion skips sweeps and scrolls, colour changes still show.
+
+Revision 3 (superseded on colour only):
+
 Revision 3 (2026-11-17). Revision 1 (system grey + accent + table) was rejected as generic; revision 2 (earthy "Germination" palette) as "okayish but meh". The user asked for online references first and chose this direction from three.
 
 Craft bar (references the user saw): Nothing OS dot-matrix UI and Ndot type; Teenage Engineering screens; Flighty (one huge fact per item); Tide Guide and (Not Boring) Weather (data shape and oversized numerals as hero).

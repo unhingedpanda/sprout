@@ -55,8 +55,14 @@ final class AppModel {
     var visibleTorrents: [Torrent] {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         return torrents.values
-            .filter { sidebar.includes($0) && (query.isEmpty || $0.name.localizedStandardContains(query)) }
+            .filter { (sidebar.includes($0) || justFinishedHere($0)) && (query.isEmpty || $0.name.localizedStandardContains(query)) }
             .sorted(using: sortKey.comparator(ascending: sortAscending))
+    }
+
+    /// A download that just finished stays in the Downloading list a few seconds, so its bloom
+    /// plays where the user was watching it.
+    private func justFinishedHere(_ torrent: Torrent) -> Bool {
+        sidebar == .state(.downloading) && (finishedAt[torrent.id]?.timeIntervalSinceNow ?? -.infinity) > -4
     }
 
     func count(_ item: SidebarItem) -> Int {
@@ -82,6 +88,7 @@ final class AppModel {
 
     func shutdown() async {
         syncTask?.cancel()
+        DockTile.update(torrents: [Torrent](), finishedAt: [:])
         await engine.stop()
     }
 
@@ -121,6 +128,7 @@ final class AppModel {
                 return
             } catch {
                 // The engine's own exit is reported by EngineController; a slow reply just retries.
+                if case .running = engine.status {} else { DockTile.update(torrents: [Torrent](), finishedAt: [:]) }
             }
             try? await Task.sleep(for: .seconds(1))
         }
@@ -162,7 +170,10 @@ final class AppModel {
         speedHistory.append(SpeedSample(down: server.downloadSpeed, up: server.uploadSpeed))
         if speedHistory.count > 180 { speedHistory.removeFirst(speedHistory.count - 180) }
         let previous = torrents
-        torrents = rawTorrents.reduce(into: [:]) { $0[$1.key] = Torrent(hash: $1.key, fields: $1.value) }
+        let next = rawTorrents.reduce(into: [String: Torrent]()) { $0[$1.key] = Torrent(hash: $1.key, fields: $1.value) }
+        // Unchanged syncs (an idle client) leave the list alone, so no row redraws.
+        if next != torrents { torrents = next }
+        if hasSynced { markFinished(since: previous) }
         selection.formIntersection(torrents.keys)
         if !awaitingSelection.isEmpty {
             let arrived = awaitingSelection.intersection(torrents.keys)
@@ -178,12 +189,53 @@ final class AppModel {
         }
         #endif
         updateDockBadge()
+        DockTile.update(torrents: torrents.values, finishedAt: finishedAt)
     }
 
     private var serverFields: [String: JSON] = [:]
     private static let log = Logger(subsystem: "dev.unhingedpanda.Sprout", category: "notifications")
 
+    /// When each torrent last finished downloading this session: rows bloom, the Dock tile flowers.
+    private(set) var finishedAt: [String: Date] = [:] {
+        didSet { runBloomClock() }
+    }
+    /// The clock rows draw the bloom from. It ticks about 30 times a second only while a finish is
+    /// under 4 s old, then stops; at rest it never changes, so nothing redraws for it.
+    private(set) var bloomClock = Date.now
+    private var bloomTicker: Task<Void, Never>?
+
+    private func runBloomClock() {
+        guard bloomTicker == nil else { return }
+        bloomTicker = Task { [weak self] in
+            while let self, self.finishedAt.values.contains(where: { $0.timeIntervalSinceNow > -4.1 }) {
+                self.bloomClock = .now
+                try? await Task.sleep(for: .milliseconds(33))
+            }
+            self?.bloomClock = .now
+            self?.bloomTicker = nil
+        }
+    }
+
     // MARK: System integration
+
+    #if DEBUG
+    /// Plays the finish bloom again after the menu closes, to check it by eye.
+    func replayFinish(_ hashes: Set<String>) {
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            selection = []
+            for hash in hashes { finishedAt[hash] = .now }
+        }
+    }
+    #endif
+
+    private func markFinished(since previous: [String: Torrent]) {
+        for torrent in torrents.values where torrent.progress >= 1 {
+            // A recheck also climbs to 100%; only a real download counts.
+            guard let before = previous[torrent.id], before.progress < 1, !before.state.isChecking else { continue }
+            finishedAt[torrent.id] = .now
+        }
+    }
 
     /// Posts "Download finished" for torrents that crossed 100% since the last sync.
     private func notifyFinished(since previous: [String: Torrent]) {

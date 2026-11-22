@@ -28,6 +28,7 @@ struct MainView: View {
         .onChange(of: model.searchFocusRequests) { searchFocused = true }
         .toolbar { toolbar }
         .dropDestination(for: URL.self) { urls, _ in
+            Haptic.tap()
             model.open(urls)
             return true
         }
@@ -83,7 +84,7 @@ struct MainView: View {
         ToolbarItem {
             Toggle("Alternative Speeds", systemImage: "tortoise", isOn: Binding(
                 get: { model.server.usesAlternativeSpeeds },
-                set: { _ in model.toggleAlternativeSpeeds() }
+                set: { _ in Haptic.step(); model.toggleAlternativeSpeeds() }
             ))
             .help("Use the alternative speed limits set in Settings (⌥⌘L)")
         }
@@ -132,10 +133,25 @@ struct SidebarView: View {
         Label {
             Text(item.title)
         } icon: {
-            Image(systemName: item.symbol).foregroundStyle(.secondary)
+            Image(systemName: item.symbol).foregroundStyle(iconTint(item))
         }
         .badge(model.count(item))
         .tag(item)
+    }
+}
+
+extension SidebarView {
+    /// A filter's icon lights in its LED colour only while that's true right now: Downloading is
+    /// orange while bytes come in, Seeding green while bytes go out, Errors red while any exist.
+    fileprivate func iconTint(_ item: SidebarItem) -> Color {
+        guard case .state(let filter) = item else { return .secondary }
+        let all = model.torrents.values
+        return switch filter {
+        case .downloading where all.contains(where: \.isFetching): .signal
+        case .seeding where all.contains(where: \.isGiving): .growth
+        case .errored where all.contains(where: \.state.isError): .fault
+        default: .secondary
+        }
     }
 }
 

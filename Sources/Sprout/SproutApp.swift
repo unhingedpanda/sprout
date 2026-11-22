@@ -32,6 +32,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let model = AppModel()
     private var isTerminating = false
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        Snapshots.renderIfAsked()
+        #endif
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = Updater.shared   // starts Sparkle's daily checks
         UNUserNotificationCenter.current().delegate = self

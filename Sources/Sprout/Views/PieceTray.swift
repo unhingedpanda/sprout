@@ -8,19 +8,35 @@ struct PieceTray: View {
     var rows = 2
     /// Draws in white only (have solid, missing faint), for the row to repaint in its text style.
     var selected = false
+    /// The finishing sweep, 0 to 1: a band of green runs across the tray when a download completes.
+    /// 1 (at rest) shows nothing extra. The row drives it from a clock only during the sweep.
+    var bloom: Double = 1
 
     var body: some View {
+        // While the torrent gives back, one column of green rings walks the tray, a step per sync.
+        let tick = Int(Date.now.timeIntervalSinceReferenceDate)
         Canvas { context, size in
-            let count = grid.columns(in: size.width) * rows
+            let columns = grid.columns(in: size.width)
+            let count = columns * rows
             let filled = Int((torrent.progress * Double(count)).rounded(.down))
             let have: Color = selected ? .white : (torrent.state.isStopped ? .secondary : .lit)
             let empty: Color = selected ? .white.opacity(0.25) : .unlit
             // The leading edge: one column of dots in flight while bytes arrive.
-            let edge = torrent.downloadSpeed >= Format.movingThreshold && torrent.progress < 1 ? filled..<min(count, filled + rows) : 0..<0
+            let edge = torrent.isFetching ? filled..<min(count, filled + rows) : 0..<0
+            let walker = !selected && torrent.isGiving && filled > 0 ? tick % max(1, filled / rows) : -1
+            let front = bloom * 1.25
             for index in 0..<count {
-                let rect = grid.rect(row: index % rows, column: index / rows)
+                let column = index / rows
+                let rect = grid.rect(row: index % rows, column: column)
                 if index < filled {
-                    context.drawDot(rect, color: have)
+                    let place = Double(column) / Double(columns)
+                    if !selected && bloom < 1 && place <= front && place > front - 0.25 {
+                        context.drawDot(rect, color: .growth)
+                    } else if column == walker {
+                        context.drawDot(rect, color: .growth, style: .ring)
+                    } else {
+                        context.drawDot(rect, color: have)
+                    }
                 } else if edge.contains(index) {
                     context.drawDot(rect, color: selected ? have : .signal)
                 } else {
@@ -118,38 +134,24 @@ struct PulseBand: View {
     private let graph = DotGrid(dot: 4, gap: 2)
     private let riseRows = 8
     private let hangRows = 3
+    @State private var marquee: Double = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(alignment: .center, spacing: 32) {
             HStack(alignment: .bottom, spacing: 26) {
                 SpeedFigure(value: current.down, direction: "down", style: .solid)
-                SpeedFigure(value: current.up, direction: "up", style: .ring, dot: 2.5)
+                SpeedFigure(value: current.up, direction: "up", style: .ring, dot: 2.5, live: .growth)
             }
             .fixedSize()
 
-            Canvas { context, size in
-                let columns = graph.columns(in: size.width)
-                let samples = Array(history.suffix(columns))
-                let offset = columns - samples.count
-                let peak = max(history.map { max($0.down, $0.up) }.max() ?? 0, 1)
-                for column in 0..<columns {
-                    let sample = column >= offset ? samples[column - offset] : SpeedSample()
-                    let rise = level(sample.down, peak: peak, rows: riseRows)
-                    let hang = level(sample.up, peak: peak, rows: hangRows)
-                    for row in 0..<riseRows {
-                        let on = (riseRows - row) <= rise
-                        context.drawDot(graph.rect(row: row, column: column), color: on ? .signal : .unlit)
-                    }
-                    for row in 0..<hangRows {
-                        let rect = graph.rect(row: riseRows + row, column: column)
-                        if row < hang {
-                            context.drawDot(rect, color: .signal, style: .ring)
-                        } else {
-                            context.drawDot(rect, color: .unlit.opacity(0.6))
-                        }
-                    }
+            PulseGraph(history: history, graph: graph, riseRows: riseRows, hangRows: hangRows, marquee: marquee)
+                .contentShape(Rectangle())
+                // Easter egg: triple-click the graph and it spells the app's name.
+                .onTapGesture(count: 3) {
+                    marquee = 0
+                    withAnimation(.linear(duration: reduceMotion ? 0 : 3.2)) { marquee = 1 }
                 }
-            }
             .frame(height: graph.extent(riseRows + hangRows))
             .accessibilityHidden(true)
         }
@@ -157,6 +159,69 @@ struct PulseBand: View {
         .padding(.vertical, 18)
         .background(Color.raised)
     }
+
+}
+
+/// The last minute as dots, one column per second. While `marquee` runs from 0 to 1, "SPROUT"
+/// scrolls through the rise rows in ink; at rest (1) it's only the graph.
+private struct PulseGraph: View, Animatable {
+    let history: [SpeedSample]
+    let graph: DotGrid
+    let riseRows: Int
+    let hangRows: Int
+    var marquee: Double
+
+    nonisolated var animatableData: Double {
+        get { marquee }
+        set { marquee = newValue }
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let columns = graph.columns(in: size.width)
+            let samples = Array(history.suffix(columns))
+            let offset = columns - samples.count
+            let peak = max(history.map { max($0.down, $0.up) }.max() ?? 0, 1)
+            let word = marquee < 1 ? Self.word : []
+            let wordWidth = word.first?.count ?? 0
+            let shift = Int(Double(columns + wordWidth) * marquee) - wordWidth
+            for column in 0..<columns {
+                let sample = column >= offset ? samples[column - offset] : SpeedSample()
+                let rise = level(sample.down, peak: peak, rows: riseRows)
+                let hang = level(sample.up, peak: peak, rows: hangRows)
+                for row in 0..<riseRows {
+                    let rect = graph.rect(row: row, column: column)
+                    let letter = row >= 1 && row <= DotFont.rows ? columns - 1 - column - shift : -1
+                    if letter >= 0 && letter < wordWidth && word[row - 1][letter] {
+                        context.drawDot(rect, color: .lit)
+                    } else {
+                        context.drawDot(rect, color: (riseRows - row) <= rise ? .signal : .unlit)
+                    }
+                }
+                for row in 0..<hangRows {
+                    let rect = graph.rect(row: riseRows + row, column: column)
+                    if row < hang {
+                        context.drawDot(rect, color: .growth, style: .ring)
+                    } else {
+                        context.drawDot(rect, color: .unlit.opacity(0.6))
+                    }
+                }
+            }
+        }
+    }
+
+    /// "SPROUT" as rows of lit flags, read right to left so it enters from the right edge.
+    private static let word: [[Bool]] = {
+        let glyphs = DotFont.glyphs(for: "SPROUT")
+        return (0..<DotFont.rows).map { row in
+            var line: [Bool] = []
+            for (i, glyph) in glyphs.enumerated() {
+                if i > 0 { line.append(false) }
+                line += (0..<glyph.width).map { glyph.isLit(row: row, column: $0) }
+            }
+            return line.reversed()
+        }
+    }()
 
     private func level(_ value: Int64, peak: Int64, rows: Int) -> Int {
         guard value > 0 else { return 0 }
@@ -172,12 +237,13 @@ private struct SpeedFigure: View {
     let direction: String
     let style: DotStyle
     var dot: CGFloat = 4
+    var live: Color = .signal
 
     var body: some View {
         let value = value >= Format.movingThreshold ? value : 0
         let parts = Format.speedParts(value)
         VStack(alignment: .leading, spacing: 7) {
-            DotText(text: parts.number, dot: dot, color: value > 0 ? .signal : .secondary, style: value > 0 ? style : .solid)
+            DotText(text: parts.number, dot: dot, color: value > 0 ? live : .secondary, style: value > 0 ? style : .solid)
             Text(value > 0 ? "\(parts.unit) \(direction)" : "idle \(direction)")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -187,20 +253,63 @@ private struct SpeedFigure: View {
     }
 }
 
-/// The empty state: an unlit matrix with a single sprout lit in it.
+/// The empty state: an unlit matrix with a sprout that grows in, dot by dot from the soil up.
+/// Easter egg: click it and it keeps growing, leaf by leaf, until it flowers.
 struct EmptyMatrix: View {
-    private let grid = DotGrid(dot: 9, gap: 4)
-    // A small sprout, 9 columns × 9 rows.
-    private let sprout: Set<Int> = [22, 23, 29, 30, 31, 32, 40, 49, 58, 67, 76]
+    @State private var grown: Double = 0
+    @State private var stage = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        SproutMatrix(grown: grown, stage: stage)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if stage == SproutMatrix.stages.count {
+                    // Flowered: start over from a seed.
+                    stage = 0
+                    grown = 0
+                    withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.7)) { grown = 1 }
+                } else {
+                    withAnimation(.snappy(duration: 0.2)) { stage += 1 }
+                    stage == SproutMatrix.stages.count ? Haptic.step() : Haptic.tap()
+                }
+            }
+            .onAppear {
+                withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.7).delay(0.1)) { grown = 1 }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+struct SproutMatrix: View, Animatable {
+    var grown: Double
+    let stage: Int
+
+    nonisolated var animatableData: Double {
+        get { grown }
+        set { grown = newValue }
+    }
+
+    private static let grid = DotGrid(dot: 9, gap: 4)
+    /// The sprout, 9 × 9, listed soil first so it grows upward.
+    private static let sprout = [76, 67, 58, 49, 40, 39, 41, 30, 32, 29, 33]
+    /// Each click adds a stage: left leaf, right leaf, a taller stem with a bud, then a flower
+    /// whose petals are orange.
+    static let stages: [[Int]] = [[20, 19], [24, 25], [22, 13], [4, 12, 14]]
+
+    var body: some View {
+        let lit = Set(Self.sprout.prefix(Int((grown * Double(Self.sprout.count)).rounded(.down))))
+        let extra = Set(Self.stages.prefix(stage).dropLast(stage == Self.stages.count ? 1 : 0).joined())
+        let petals = stage == Self.stages.count ? Set(Self.stages.last!) : []
         Canvas { context, _ in
             for index in 0..<81 {
-                let rect = grid.rect(row: index / 9, column: index % 9)
-                context.drawDot(rect, color: sprout.contains(index) ? .lit : .unlit)
+                let rect = Self.grid.rect(row: index / 9, column: index % 9)
+                let color: Color = petals.contains(index) ? .signal
+                    : extra.contains(index) ? .growth
+                    : lit.contains(index) ? .lit : .unlit
+                context.drawDot(rect, color: color)
             }
         }
-        .frame(width: grid.extent(9), height: grid.extent(9))
-        .accessibilityHidden(true)
+        .frame(width: Self.grid.extent(9), height: Self.grid.extent(9))
     }
 }

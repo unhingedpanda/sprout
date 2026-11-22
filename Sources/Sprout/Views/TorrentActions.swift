@@ -23,6 +23,9 @@ struct TorrentActions: View {
         ))
         .help("Start now, ignoring the queue limits")
         .disabled(none)
+        #if DEBUG
+        Button("Replay Finish (Debug)") { model.replayFinish(hashes) }
+        #endif
 
         Divider()
 

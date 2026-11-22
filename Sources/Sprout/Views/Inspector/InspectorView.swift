@@ -350,7 +350,7 @@ private struct PeersPane: View {
                             Text(Format.speed(peer.downloadSpeed)).foregroundStyle(Color.signal)
                         }
                         if peer.uploadSpeed > 0 {
-                            Text(Format.speed(peer.uploadSpeed)).foregroundStyle(Color.signal)
+                            Text(Format.speed(peer.uploadSpeed)).foregroundStyle(Color.growth)
                         }
                     }
                     Text("has \(Format.percent(peer.progress))")
