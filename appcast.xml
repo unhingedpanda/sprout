@@ -4,6 +4,25 @@
     <title>Sprout</title>
     <link>https://github.com/unhingedpanda/sprout</link>
     <item>
+      <title>Sprout 0.1.2</title>
+      <pubDate>Sun, 22 Nov 2026 21:07:16 GMT</pubDate>
+      <sparkle:version>3</sparkle:version>
+      <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+<h2>Sprout 0.1.2</h2>
+<ul>
+<li>More colour, each with one meaning: orange while data comes in, green while it goes out, amber while waiting or checking, red for errors.</li>
+<li>A finished download blooms: a green sweep through its progress dots, and DONE for a moment.</li>
+<li>The Dock icon's seedling grows as your downloads progress, and flowers when one finishes.</li>
+<li>A leaf marks torrents that have shared back as much as they downloaded.</li>
+<li>Haptic feedback on Force Touch trackpads when you drop a torrent or switch to slower speeds.</li>
+<li>A couple of hidden surprises in the dots.</li>
+</ul>
+      ]]></description>
+      <enclosure url="https://github.com/unhingedpanda/sprout/releases/download/v0.1.2/Sprout-0.1.2.dmg" type="application/octet-stream" sparkle:edSignature="TmKAXkEl/cHHZX1T1PSbpHqxvawJmd8SGUTA4iY1FOdBAXQfLfZfafSoOm7ZbDROh43bl+nBQxz+L7cbaEHRBg==" length="42924681"/>
+    </item>
+    <item>
       <title>Sprout 0.1.1</title>
       <pubDate>Sun, 22 Nov 2026 20:31:21 GMT</pubDate>
       <sparkle:version>2</sparkle:version>

@@ -8,8 +8,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     # Sparkle compares CURRENT_PROJECT_VERSION: raise it with every release.
-    MARKETING_VERSION: "0.1.1"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.1.2"
+    CURRENT_PROJECT_VERSION: "3"
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
     ENABLE_USER_SCRIPT_SANDBOXING: NO
