@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Sprout</title>
+    <link>https://github.com/unhingedpanda/sprout</link>
+    <item>
+      <title>Sprout 0.1.1</title>
+      <pubDate>Sun, 22 Nov 2026 20:31:21 GMT</pubDate>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://github.com/unhingedpanda/sprout/releases/tag/v0.1.1</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/unhingedpanda/sprout/releases/download/v0.1.1/Sprout-0.1.1.dmg" type="application/octet-stream" sparkle:edSignature="nfWvhvF2MwkyqjRSwRefv5r8WSvRmpZI+ITTrMH8K6jh7A3hdI1tucSv6VpLCijrO3tTkHBGaKWfNT9SwN9mBQ==" length="42876893"/>
+    </item>
+  </channel>
+</rss>

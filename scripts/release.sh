@@ -20,7 +20,13 @@ xcodegen generate -q
 # ponytail: arm64 only because the engine bundle is; go universal with a universal engine.
 xcodebuild -project Sprout.xcodeproj -scheme Sprout -configuration Release -derivedDataPath "$OUT" \
   ARCHS=arm64 CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" \
-  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO OTHER_CODE_SIGN_FLAGS=--timestamp build -quiet
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO OTHER_CODE_SIGN_FLAGS=--timestamp ENABLE_HARDENED_RUNTIME=YES build -quiet
+# Sparkle's helpers keep Sparkle's own signature; notarization needs them signed by us.
+for f in "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/"{XPCServices/*.xpc,Autoupdate,Updater.app}; do
+  [ -e "$f" ] && codesign --force --sign "$IDENTITY" --options runtime --timestamp --preserve-metadata=entitlements "$f"
+done
+codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP/Contents/Frameworks/Sparkle.framework"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp --preserve-metadata=entitlements "$APP"
 
 # The notary service rejects the whole upload for any one of these, minutes later, so check first.
 echo "==> checking signatures"

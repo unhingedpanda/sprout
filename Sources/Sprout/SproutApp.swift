@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isTerminating = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = Updater.shared   // starts Sparkle's daily checks
         UNUserNotificationCenter.current().delegate = self
         if Preferences.notifyOnCompletion {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
@@ -78,6 +79,9 @@ struct SproutCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Updater.shared.checkForUpdates() }
+        }
         CommandGroup(replacing: .newItem) {
             Button("Add Torrent…") { model.showsAddSheet = true }
                 .keyboardShortcut("o")
