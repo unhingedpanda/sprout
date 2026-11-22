@@ -9,7 +9,17 @@
       <sparkle:version>2</sparkle:version>
       <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/unhingedpanda/sprout/releases/tag/v0.1.1</sparkle:releaseNotesLink>
+      <description><![CDATA[
+<h2>Sprout 0.1.1</h2>
+<ul>
+<li>Runs on Intel Macs as well as Apple silicon.</li>
+<li>Runs on macOS 26. The engine in 0.1.0 needed macOS 27.</li>
+<li>Updates itself: Sprout checks once a day, and Sprout › Check for Updates… checks now.</li>
+<li>A new app icon, and the About window lists the included software and its licences.</li>
+<li>Deleted files go to the Trash, with a switch in Settings › Downloads.</li>
+<li>Fixes from hands-on testing: readable selected rows, ⌘F for the filter, a steadier list, clearer settings and dialogs.</li>
+</ul>
+      ]]></description>
       <enclosure url="https://github.com/unhingedpanda/sprout/releases/download/v0.1.1/Sprout-0.1.1.dmg" type="application/octet-stream" sparkle:edSignature="nfWvhvF2MwkyqjRSwRefv5r8WSvRmpZI+ITTrMH8K6jh7A3hdI1tucSv6VpLCijrO3tTkHBGaKWfNT9SwN9mBQ==" length="42876893"/>
     </item>
   </channel>

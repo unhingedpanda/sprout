@@ -46,17 +46,23 @@ rm -rf build/dmg/stage
 hdiutil verify "$DMG" -quiet
 
 SIG=$("$SPARKLE_BIN/sign_update" --account dev.unhingedpanda.Sprout "$DMG")
+[ -f "release-notes/$VERSION.html" ] || { echo "error: write release-notes/$VERSION.html first" >&2; exit 1; }
 python3 - "$VERSION" "$BUILD" "$MIN_OS" "$REPO" "$SIG" <<'PY'
 import sys, os, email.utils
 version, build, min_os, repo, sig = sys.argv[1:]
+# Sparkle shows these in its update window: release-notes/<version>.html, an HTML fragment.
+path = f"release-notes/{version}.html"
+if not os.path.exists(path): sys.exit(f"error: write {path} first")
+body = open(path).read()
+if "]]>" in body: sys.exit(f"error: {path} must not contain ]]>")
+notes = f"      <description><![CDATA[\n{body}      ]]></description>\n"
 item = f"""    <item>
       <title>Sprout {version}</title>
       <pubDate>{email.utils.formatdate(usegmt=True)}</pubDate>
       <sparkle:version>{build}</sparkle:version>
       <sparkle:shortVersionString>{version}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>{min_os}</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/{repo}/releases/tag/v{version}</sparkle:releaseNotesLink>
-      <enclosure url="https://github.com/{repo}/releases/download/v{version}/Sprout-{version}.dmg" type="application/octet-stream" {sig}/>
+{notes}      <enclosure url="https://github.com/{repo}/releases/download/v{version}/Sprout-{version}.dmg" type="application/octet-stream" {sig}/>
     </item>
 """
 path = "appcast.xml"

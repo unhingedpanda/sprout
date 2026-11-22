@@ -39,19 +39,20 @@ Sprout is not an official qBittorrent product.
 ## Build the engine
 
 ```sh
-brew install cmake ninja libtorrent-rasterbar qtbase qttools
-git clone https://github.com/qbittorrent/qBittorrent.git --branch release-5.3.0 qbt-engine-src
-cmake -S qbt-engine-src -B qbt-engine-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DGUI=OFF -DWEBUI=ON -DSTACKTRACE=OFF -DCMAKE_PREFIX_PATH=/opt/homebrew
-ninja -C qbt-engine-build
-scripts/bundle-engine.sh path/to/qbt-engine-build/qbittorrent-nox.app
+brew install cmake ninja qtbase qttools boost
+git clone https://github.com/qbittorrent/qBittorrent.git --branch release-5.3.0 ../../oss/qbt-engine-src
+scripts/build-static-engine.sh
 ```
 
-`scripts/bundle-engine.sh` makes the engine self-contained in `build/engine/qbittorrent-nox.app`:
-it copies in Qt, libtorrent and OpenSSL with `macdeployqt`, removes the GUI-only parts, points
-library lookup inside the bundle, and signs every binary. It fails if anything still links
-outside the bundle. Set `SIGN_IDENTITY` to a Developer ID to sign with the hardened runtime.
-The bundle is Apple silicon only for now.
+`scripts/build-static-engine.sh` downloads OpenSSL, Qt base and libtorrent from their official
+releases and builds `build/engine/qbittorrent-nox.app`: one universal (Apple silicon + Intel)
+executable with every library linked in, for macOS 26 and later. Homebrew supplies only the host
+tools for the Intel cross-build and Boost's headers. The script fails if the engine links anything
+outside macOS, targets a newer macOS, or contains this Mac's paths. Running the Intel half on an
+Apple silicon Mac needs Rosetta (`softwareupdate --install-rosetta`).
+
+`scripts/bundle-engine.sh` is the older Homebrew-based bundle: Apple silicon only, and only for
+the macOS version it was built on.
 
 ## Build the app
 
@@ -88,10 +89,24 @@ OpenSSL, ICU, GLib and gettext's libintl (LGPL v2.1), PCRE2, Zstandard, Brotli,
 double-conversion and libb2. Their licence texts are in `Resources/Licenses` and inside the app,
 and the About window lists each with its version and source.
 
+## Release
+
+```sh
+scripts/build-static-engine.sh            # once per engine change
+# raise MARKETING_VERSION and CURRENT_PROJECT_VERSION in project.yml
+# write release-notes/<version>.html (shown in Sparkle's update window)
+scripts/make-dmg.sh                       # build/dmg/Sprout-<version>.dmg + appcast.xml entry
+```
+
+Commit `appcast.xml` to `main` and attach the DMG to the GitHub release `v<version>`. Sparkle
+reads the feed from `main`, so publish the release first. The EdDSA key that signs updates is
+in the login keychain under the account `dev.unhingedpanda.Sprout`; without it no installed copy
+can be updated. Back it up with `generate_keys --account dev.unhingedpanda.Sprout -x <file>`.
+
 ## Not done yet
 
-- Notarized release: v0.1.0 is published as an unnotarized, ad hoc signed pre-release (Apple agreement still pending). Re-run `scripts/release.sh` with a Developer ID once notarization works.
-- Intel Macs: the engine bundle is Apple silicon only.
+- Notarized release: releases are ad hoc signed and not notarized until the Apple developer
+  agreement is accepted and a Developer ID is chosen.
 - Importing torrents from another client.
 
 ## Licence
